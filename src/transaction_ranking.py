@@ -60,7 +60,7 @@ def build_transaction_ranking(
     else:
         work["transaction_count"] = pd.to_numeric(work["transaction_count"], errors="coerce").fillna(0)
         result = (
-            work.groupby("internal_complex_id", as_index=False, dropna=False)
+            work.groupby("internal_complex_id", as_index=False, dropna=False, observed=True)
             .agg(
                 complex_name=("complex_name", "first"),
                 sigungu=("sigungu", "first"),
@@ -158,7 +158,7 @@ def build_region_transaction_summary(
     work["transaction_count"] = pd.to_numeric(work["transaction_count"], errors="coerce").fillna(0)
     result = (
         work.dropna(subset=[group_by])
-        .groupby(group_by, as_index=False)["transaction_count"]
+        .groupby(group_by, as_index=False, observed=True)["transaction_count"]
         .sum()
         .sort_values(["transaction_count", group_by], ascending=[False, True])
         .reset_index(drop=True)

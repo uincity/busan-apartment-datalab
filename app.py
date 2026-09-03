@@ -6,6 +6,7 @@ from pathlib import Path
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+from pyarrow import parquet as pq
 
 from src.apartment_ranking import (
     build_household_ranking,
@@ -59,21 +60,127 @@ AREA_GROUP_LABELS = {
     "over_120": "120㎡ 이상",
 }
 
+PANEL_COLUMNS = [
+    "internal_complex_id",
+    "year_month",
+    "area_group",
+    "transaction_count",
+    "median_price",
+    "mean_price",
+    "complex_name",
+    "sigungu",
+    "dong",
+    "provisional",
+]
+COMPLEX_SUMMARY_SOURCE_COLUMNS = [
+    "year_month",
+    "internal_complex_id",
+    "complex_name",
+    "sigungu",
+    "dong",
+    "households",
+    "approval_date",
+    "apartment_age",
+    "parking_total",
+    "parking_per_household",
+    "transactions_3m",
+    "transactions_6m",
+    "transactions_12m",
+    "area_group",
+    "latitude",
+    "longitude",
+    "road_address",
+    "provisional",
+    "price_3m",
+    "price_per_3_3sqm_3m",
+    "return_3m",
+    "return_6m",
+    "return_12m",
+    "rolling_peak",
+    "drawdown_from_peak",
+    "rolling_trough",
+    "recovery_from_trough",
+    "sample_count",
+    "low_sample_flag",
+]
+
 st.set_page_config(page_title="열심남의 부산 아파트 데이터랩", page_icon=":material/apartment:", layout="wide")
 
 
-@st.cache_data(show_spinner=False)
-def load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
+def _optimize_panel_dtypes(panel: pd.DataFrame) -> pd.DataFrame:
+    """반복 문자열을 범주형으로 저장해 상주 메모리를 줄인다."""
+    for column in ["internal_complex_id", "area_group", "complex_name", "sigungu", "dong"]:
+        if column in panel:
+            panel[column] = panel[column].astype("category")
+    if "year_month" in panel:
+        months = sorted(panel["year_month"].dropna().astype(str).unique())
+        panel["year_month"] = pd.Categorical(panel["year_month"], categories=months, ordered=True)
+    if "transaction_count" in panel:
+        panel["transaction_count"] = pd.to_numeric(panel["transaction_count"], downcast="integer")
+    return panel
+
+
+def _latest_parquet_month(path: Path, column: str = "year_month") -> str | None:
+    """전체 파일을 DataFrame으로 읽지 않고 Parquet 통계에서 최신 월을 찾는다."""
+    parquet_file = pq.ParquetFile(path)
+    column_index = parquet_file.schema_arrow.names.index(column)
+    maximums: list[str] = []
+    for row_group_index in range(parquet_file.num_row_groups):
+        statistics = parquet_file.metadata.row_group(row_group_index).column(column_index).statistics
+        if statistics is not None and statistics.has_min_max:
+            maximum = statistics.max
+            if isinstance(maximum, bytes):
+                maximum = maximum.decode("utf-8")
+            maximums.append(str(maximum))
+    if maximums:
+        return max(maximums)
+
+    months = pd.read_parquet(path, columns=[column])[column]
+    return None if months.empty else str(months.max())
+
+
+def _read_recent_trades(path: Path, columns: list[str], months: int) -> pd.DataFrame:
+    latest_month = _latest_parquet_month(path)
+    if latest_month is None:
+        return pd.DataFrame(columns=columns)
+    latest_period = pd.Period(latest_month, freq="M")
+    start_month = str(latest_period - (months - 1))
+    return pd.read_parquet(
+        path,
+        columns=columns,
+        filters=[("year_month", ">=", start_month), ("year_month", "<=", str(latest_period))],
+    )
+
+
+@st.cache_resource(show_spinner=False)
+def load_panel() -> pd.DataFrame:
     panel_path = PROCESSED / "busan_apartment_monthly.parquet"
     if not panel_path.exists():
-        return pd.DataFrame(), pd.DataFrame()
-    panel = pd.read_parquet(panel_path)
+        return pd.DataFrame()
+    return _optimize_panel_dtypes(pd.read_parquet(panel_path, columns=PANEL_COLUMNS))
+
+
+@st.cache_resource(show_spinner=False)
+def load_complexes() -> pd.DataFrame:
+    panel_path = PROCESSED / "busan_apartment_monthly.parquet"
     complex_path = PROCESSED / "busan_complex_summary.csv"
-    complexes = pd.read_csv(complex_path) if complex_path.exists() else build_complex_summary(panel)
-    return panel, complexes
+    if complex_path.exists():
+        return pd.read_csv(complex_path)
+    if not panel_path.exists():
+        return pd.DataFrame()
+    summary_source = pd.read_parquet(panel_path, columns=COMPLEX_SUMMARY_SOURCE_COLUMNS)
+    return build_complex_summary(summary_source)
 
 
-@st.cache_data(show_spinner="실거래 평당가 순위 데이터를 불러오고 있습니다...")
+def load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
+    """호환용 진입점. 큰 객체는 세션별 복사 없이 프로세스에서 공유한다."""
+    return load_panel(), load_complexes()
+
+
+@st.cache_data(
+    show_spinner="실거래 평당가 순위 데이터를 불러오고 있습니다...",
+    max_entries=1,
+)
 def load_ranking_trades(trade_version: int) -> pd.DataFrame:
     _ = trade_version
     trade_path = ROOT / "data" / "interim" / "trade_matched.parquet"
@@ -86,18 +193,31 @@ def load_ranking_trades(trade_version: int) -> pd.DataFrame:
     ]
     if not trade_path.exists():
         return pd.DataFrame(columns=columns)
-    return pd.read_parquet(trade_path, columns=columns)
+    return _read_recent_trades(trade_path, columns, months=3)
 
 
-@st.cache_data(show_spinner="선택 기간의 실거래가 중앙값을 계산하고 있습니다...")
+@st.cache_data(
+    show_spinner="선택 기간의 실거래가 중앙값을 계산하고 있습니다...",
+    max_entries=3,
+)
 def load_recent_price_summary(trade_version: int, complex_version: int, months: int = 1) -> pd.DataFrame:
     _ = trade_version, complex_version
     trade_path = ROOT / "data" / "interim" / "trade_matched.parquet"
     complex_path = PROCESSED / "busan_complex_summary.csv"
     if not trade_path.exists() or not complex_path.exists():
         return pd.DataFrame()
+    trade_columns = [
+        "internal_complex_id",
+        "year_month",
+        "deal_amount_krw",
+        "complex_name",
+        "sigungu",
+        "dong",
+        "is_cancelled",
+        "provisional",
+    ]
     return build_recent_price_summary(
-        pd.read_parquet(trade_path),
+        _read_recent_trades(trade_path, trade_columns, months=months),
         pd.read_csv(complex_path),
         months=months,
     )
@@ -140,7 +260,10 @@ def open_transaction_selection(chart_key: str) -> None:
 def filter_data(panel: pd.DataFrame, complexes: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     st.sidebar.header("분석 필터")
     complexes = add_approval_year(complexes)
-    months = sorted(panel["year_month"].dropna().astype(str).unique())
+    if isinstance(panel["year_month"].dtype, pd.CategoricalDtype):
+        months = panel["year_month"].cat.categories.astype(str).tolist()
+    else:
+        months = sorted(panel["year_month"].dropna().astype(str).unique())
     selected_months = st.sidebar.select_slider("분석기간", options=months, value=(months[0], months[-1]))
 
     households = pd.to_numeric(complexes["households"], errors="coerce")
@@ -227,7 +350,10 @@ def render_transaction_ranking(panel: pd.DataFrame, complexes: pd.DataFrame) -> 
     )
     selected_district: str | None = None
     selected_dong: str | None = None
-    districts = sorted(panel["sigungu"].dropna().astype(str).unique())
+    if isinstance(panel["sigungu"].dtype, pd.CategoricalDtype):
+        districts = panel["sigungu"].cat.categories.astype(str).tolist()
+    else:
+        districts = sorted(panel["sigungu"].dropna().astype(str).unique())
 
     if scope == "구 전체":
         selected_district = st.selectbox("구·군 선택", districts, key="transaction_district")
@@ -255,39 +381,44 @@ def render_transaction_ranking(panel: pd.DataFrame, complexes: pd.DataFrame) -> 
             panel["sigungu"].eq(selected_district) & panel["dong"].eq(selected_dong)
         ]
 
-    latest_month = str(pd.to_datetime(panel["year_month"], errors="coerce").max().to_period("M"))
+    latest_month = str(panel["year_month"].max())
     with st.container(horizontal=True):
         st.metric("지역 범위", scope_label, border=True)
         st.metric("대상 단지", f"{scoped_panel['internal_complex_id'].nunique():,}개", border=True)
         st.metric("최신 계약월", latest_month, border=True)
 
-    tabs = st.tabs([label for label, _, _ in TRANSACTION_PERIODS])
+    tabs = st.tabs(
+        [label for label, _, _ in TRANSACTION_PERIODS],
+        key="transaction_period_tabs",
+        on_change="rerun",
+    )
     for tab, (period_label, months, period_key) in zip(tabs, TRANSACTION_PERIODS, strict=True):
-        ranking = build_transaction_ranking(
-            panel,
-            months,
-            sigungu=selected_district,
-            dong=selected_dong,
-            complex_master=complexes,
-        )
-        with tab:
-            st.caption(f"집계기간: {ranking.attrs['window_start']} ~ {ranking.attrs['window_end']}")
-            st.caption(
-                "막대 = 거래건수 · 점 = 세대수 대비 거래비율  |  "
-                "거래비율 = 선택기간 실거래건수 ÷ 전체 세대수"
-            )
-            chart_key = f"transaction_ranking_{period_key}"
-            st.plotly_chart(
-                transaction_volume_bar(
-                    ranking,
-                    f"{scope_label} · {period_label} 거래량 TOP 20",
-                    period_label,
-                ),
-                width="stretch",
-                key=chart_key,
-                on_select=partial(open_transaction_selection, chart_key),
-                selection_mode="points",
-            )
+        if tab.open:
+            with tab:
+                ranking = build_transaction_ranking(
+                    panel,
+                    months,
+                    sigungu=selected_district,
+                    dong=selected_dong,
+                    complex_master=complexes,
+                )
+                st.caption(f"집계기간: {ranking.attrs['window_start']} ~ {ranking.attrs['window_end']}")
+                st.caption(
+                    "막대 = 거래건수 · 점 = 세대수 대비 거래비율  |  "
+                    "거래비율 = 선택기간 실거래건수 ÷ 전체 세대수"
+                )
+                chart_key = f"transaction_ranking_{period_key}"
+                st.plotly_chart(
+                    transaction_volume_bar(
+                        ranking,
+                        f"{scope_label} · {period_label} 거래량 TOP 20",
+                        period_label,
+                    ),
+                    width="stretch",
+                    key=chart_key,
+                    on_select=partial(open_transaction_selection, chart_key),
+                    selection_mode="points",
+                )
 
     st.divider()
     st.subheader(":material/location_city: 지역별 거래량")
@@ -338,7 +469,7 @@ def render_transaction_ranking(panel: pd.DataFrame, complexes: pd.DataFrame) -> 
         width="stretch",
     )
 
-    latest_rows = panel[panel["year_month"].astype(str).eq(latest_month)]
+    latest_rows = panel[panel["year_month"].eq(latest_month)]
     if latest_rows["provisional"].fillna(False).any():
         st.caption("※ 최신 계약월은 신고가 진행 중인 잠정 데이터이므로 거래량이 늘어날 수 있습니다.")
 
@@ -632,28 +763,33 @@ def render_recent_price_search(trade_version: int, complex_version: int) -> None
         st.caption("※ 선택 기간에 신고가 진행 중인 잠정 데이터가 포함되어 결과가 변경될 수 있습니다.")
 
 
-panel, complexes = load_data()
 st.title(":material/apartment: 열심남의 부산 아파트 데이터랩")
 st.caption("실거래와 단지정보를 결합한 탐색 도구입니다. 투자 추천 또는 매수 신호가 아닙니다.")
-if panel.empty:
-    st.warning("분석 데이터가 없습니다. 먼저 `python main.py demo` 또는 데이터 수집 후 `python main.py build`를 실행하세요.")
-    st.stop()
-
 menu = render_sidebar_navigation()
-if menu == "거래량 TOP 20":
-    render_transaction_ranking(panel, complexes)
-    st.stop()
-if menu == "아파트 TOP 20":
-    ranking_trade_path = ROOT / "data" / "interim" / "trade_matched.parquet"
-    ranking_trade_version = ranking_trade_path.stat().st_mtime_ns if ranking_trade_path.exists() else 0
-    render_apartment_rankings(load_ranking_trades(ranking_trade_version), complexes)
-    st.stop()
 if menu == "실거래가 단지 검색":
     recent_trade_path = ROOT / "data" / "interim" / "trade_matched.parquet"
     recent_complex_path = PROCESSED / "busan_complex_summary.csv"
     trade_version = recent_trade_path.stat().st_mtime_ns if recent_trade_path.exists() else 0
     complex_version = recent_complex_path.stat().st_mtime_ns if recent_complex_path.exists() else 0
     render_recent_price_search(trade_version, complex_version)
+    st.stop()
+
+complexes = load_complexes()
+if menu == "아파트 TOP 20":
+    if complexes.empty:
+        st.warning("단지 요약 데이터가 없습니다. `python main.py build`를 먼저 실행해 주세요.")
+        st.stop()
+    ranking_trade_path = ROOT / "data" / "interim" / "trade_matched.parquet"
+    ranking_trade_version = ranking_trade_path.stat().st_mtime_ns if ranking_trade_path.exists() else 0
+    render_apartment_rankings(load_ranking_trades(ranking_trade_version), complexes)
+    st.stop()
+
+panel = load_panel()
+if panel.empty or complexes.empty:
+    st.warning("분석 데이터가 없습니다. 먼저 `python main.py demo` 또는 데이터 수집 후 `python main.py build`를 실행하세요.")
+    st.stop()
+if menu == "거래량 TOP 20":
+    render_transaction_ranking(panel, complexes)
     st.stop()
 
 filtered_panel, filtered_complexes = filter_data(panel, complexes)
@@ -759,14 +895,19 @@ elif menu == "아파트 상세":
     for index, (label, value) in enumerate(metrics):
         cols[index % 4].metric(label, value)
     complex_id = selected_id
-    detail_panel = filtered_panel[filtered_panel["internal_complex_id"].astype(str).eq(complex_id)]
+    detail_panel = filtered_panel[filtered_panel["internal_complex_id"].eq(complex_id)]
     if detail_panel.empty:
-        detail_panel = panel[panel["internal_complex_id"].astype(str).eq(complex_id)]
+        detail_panel = panel[panel["internal_complex_id"].eq(complex_id)]
     st.plotly_chart(complex_price_line(detail_panel, [complex_id]), width="stretch")
     st.plotly_chart(transaction_line(detail_panel, complex_id), width="stretch")
-    area_latest = detail_panel.sort_values("year_month").groupby("area_group", as_index=False).tail(1)
+    area_latest = (
+        detail_panel.sort_values("year_month")
+        .groupby("area_group", as_index=False, observed=True)
+        .tail(1)
+    )
+    area_groups = area_latest["area_group"].astype("string")
     area_latest = area_latest.assign(
-        area_group=area_latest["area_group"].map(AREA_GROUP_LABELS).fillna(area_latest["area_group"])
+        area_group=area_groups.map(AREA_GROUP_LABELS).fillna(area_groups)
     )
     st.plotly_chart(
         px.bar(

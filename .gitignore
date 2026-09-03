@@ -21,3 +21,25 @@ Thumbs.db
 # Environment variables
 .env
 .env.*
+
+# 데이터 수집·전처리 산출물 제외
+data/raw/**/*
+data/interim/**/*
+data/processed/**/*
+
+# 디렉터리 유지
+!data/**/.gitkeep
+
+# Streamlit 서비스 필수 데이터
+!data/processed/busan_apartment_monthly.parquet
+!data/processed/busan_complex_summary.csv
+!data/processed/recovery_watchlist.csv
+!data/processed/old_apartment_watchlist.csv
+
+# 현재 앱이 직접 사용하는 유일한 interim 예외
+!data/interim/trade_matched.parquet
+
+# 보고서 산출물 제외
+reports/figures/**/*
+reports/tables/**/*
+!reports/**/.gitkeep

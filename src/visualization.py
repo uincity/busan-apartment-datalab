@@ -89,7 +89,11 @@ def complex_price_line(panel: pd.DataFrame, complex_ids: list[str] | None = None
 
 
 def transaction_line(panel: pd.DataFrame, complex_id: str) -> go.Figure:
-    work = panel[panel["internal_complex_id"].eq(complex_id)].groupby("year_month", as_index=False)["transaction_count"].sum()
+    work = (
+        panel[panel["internal_complex_id"].eq(complex_id)]
+        .groupby("year_month", as_index=False, observed=True)["transaction_count"]
+        .sum()
+    )
     return px.bar(
         work,
         x="year_month",
@@ -116,7 +120,7 @@ def transaction_volume_bar(
         lambda row: f"{int(row['rank'])}. {row['complex_name']}",
         axis=1,
     )
-    work["sigungu"] = work["sigungu"].fillna("구·군 미상")
+    work["sigungu"] = work["sigungu"].astype("string").fillna("구·군 미상")
     if "household_count" not in work:
         work["household_count"] = float("nan")
     if "transaction_rate" not in work:
@@ -322,7 +326,7 @@ def apartment_ranking_bar(
         axis=1,
     )
     work["display_value"] = pd.to_numeric(work[value_column], errors="coerce") / value_divisor
-    work["sigungu"] = work["sigungu"].fillna("구·군 미상")
+    work["sigungu"] = work["sigungu"].astype("string").fillna("구·군 미상")
     work = work.sort_values("rank", ascending=False)
     figure = px.bar(
         work,
@@ -456,7 +460,7 @@ def add_map_price_metrics(complexes: pd.DataFrame, panel: pd.DataFrame) -> pd.Da
 
     trades["weighted_price"] = trades["mean_price"] * trades["transaction_count"]
     prices = (
-        trades.groupby("internal_complex_id", as_index=False)
+        trades.groupby("internal_complex_id", as_index=False, observed=True)
         .agg(
             weighted_price=("weighted_price", "sum"),
             map_transaction_count=("transaction_count", "sum"),

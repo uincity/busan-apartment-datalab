@@ -1,0 +1,13 @@
+﻿match_method,complex_count,manual_review_count,complex_pct
+address_conflict,1,1,0.02
+dong_fuzzy,43,26,0.96
+legal_address_exact,63,5,1.4
+legal_address_exact_name,1,0,0.02
+legal_address_main,3,3,0.07
+legal_address_main_name,3,1,0.07
+road_address_exact,211,4,4.69
+road_address_exact_name,3,3,0.07
+road_address_main,2,0,0.04
+road_legal_address_exact,1113,0,24.74
+road_legal_address_exact_name,4,3,0.09
+unmatched,3052,3052,67.84

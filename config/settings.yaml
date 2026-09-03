@@ -1,0 +1,53 @@
+project:
+  provisional_months: 2
+  low_sample_threshold: 3
+
+trade_api:
+  # 공공데이터포털 15126468, 아파트 매매 실거래가 상세 자료
+  base_url: "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
+  num_rows: 1000
+  timeout: 30
+  max_retries: 4
+  backoff_factor: 1.5
+
+kapt_api:
+  list_base_url: "https://apis.data.go.kr/1613000/AptListService4"
+  basis_base_url: "https://apis.data.go.kr/1613000/AptBasisInfoServiceV5"
+  list_operation: "getSidoAptList4"
+  basis_operation: "getAphusBassInfoV5"
+  detail_operation: "getAphusDtlInfoV5"
+  basis_service_key_param: "serviceKey"
+  detail_service_key_param: "ServiceKey"
+  num_rows: 1000
+  timeout: 30
+  max_retries: 4
+  backoff_factor: 1.5
+
+kakao_geocoding:
+  base_url: "https://dapi.kakao.com/v2/local/search/address.json"
+  timeout: 10
+  max_retries: 3
+  backoff_factor: 0.5
+  request_interval: 0.05
+  save_every: 50
+
+matching:
+  fuzzy_threshold: 75
+  manual_review_threshold: 90
+
+representative_score:
+  households: 0.30
+  turnover: 0.30
+  price_84: 0.25
+  area_variety: 0.15
+
+recovery_watch:
+  minimum_transactions_6m: 3
+  minimum_drawdown: 0.10
+  maximum_drawdown: 0.60
+  return_improvement_tolerance: 0.02
+
+quality:
+  minimum_floor: -5
+  maximum_floor: 100
+  price_outlier_iqr_multiplier: 3.0

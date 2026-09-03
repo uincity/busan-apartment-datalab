@@ -1,0 +1,11 @@
+﻿check,count,status
+nonpositive_deal_amount,0,PASS
+nonpositive_area,0,PASS
+future_build_year,0,PASS
+abnormal_floor,0,PASS
+duplicate_transactions,9729,REVIEW
+cancelled_transactions,15207,REVIEW
+complex_match_failures,3052,REVIEW
+missing_households,0,PASS
+missing_parking,51,REVIEW
+price_outliers,1439,REVIEW

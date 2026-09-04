@@ -37,6 +37,7 @@ def load_regions() -> pd.DataFrame:
 def ensure_directories() -> None:
     for path in [
         ROOT / "data" / "raw" / "trade",
+        ROOT / "data" / "raw" / "rent",
         ROOT / "data" / "raw" / "kapt",
         ROOT / "data" / "interim",
         ROOT / "data" / "processed",
@@ -44,4 +45,3 @@ def ensure_directories() -> None:
         ROOT / "reports" / "tables",
     ]:
         path.mkdir(parents=True, exist_ok=True)
-

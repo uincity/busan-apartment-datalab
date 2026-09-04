@@ -103,6 +103,62 @@ def transaction_line(panel: pd.DataFrame, complex_id: str) -> go.Figure:
     )
 
 
+def rent_price_line(panel: pd.DataFrame, complex_id: str, area_group: str) -> go.Figure:
+    """선택 평형의 최근 12개월 매매·전세 중앙가격을 함께 표시한다."""
+    work = panel[
+        panel["internal_complex_id"].astype(str).eq(str(complex_id))
+        & panel["area_group"].astype(str).eq(str(area_group))
+    ].copy()
+    columns = {
+        "median_sale_price_12m": "매매가 중앙값",
+        "median_jeonse_deposit_12m": "전세 보증금 중앙값",
+    }
+    if work.empty:
+        figure = go.Figure()
+        figure.add_annotation(text="선택 평형의 매매·전세 데이터가 없습니다.", showarrow=False)
+        figure.update_layout(title="매매·전세 가격 추이")
+        return figure
+    long = work[["year_month", *columns]].melt(
+        id_vars="year_month", var_name="price_type", value_name="price"
+    )
+    long["price_type"] = long["price_type"].map(columns)
+    long = long.dropna(subset=["price"])
+    return px.line(
+        long,
+        x="year_month",
+        y="price",
+        color="price_type",
+        markers=True,
+        title="매매·전세 가격 추이 (최근 12개월 중앙값)",
+        labels={"year_month": "계약월", "price": "가격(원)", "price_type": "구분"},
+    )
+
+
+def jeonse_ratio_line(panel: pd.DataFrame, complex_id: str, area_group: str) -> go.Figure:
+    """선택 평형의 최근 12개월 전세가율 추이를 표시한다."""
+    work = panel[
+        panel["internal_complex_id"].astype(str).eq(str(complex_id))
+        & panel["area_group"].astype(str).eq(str(area_group))
+    ].copy()
+    work["jeonse_ratio_pct"] = pd.to_numeric(work.get("jeonse_ratio_12m"), errors="coerce") * 100
+    work = work.dropna(subset=["jeonse_ratio_pct"])
+    if work.empty:
+        figure = go.Figure()
+        figure.add_annotation(text="전세가율을 계산할 매매·전세 표본이 없습니다.", showarrow=False)
+        figure.update_layout(title="전세가율 추이")
+        return figure
+    figure = px.line(
+        work,
+        x="year_month",
+        y="jeonse_ratio_pct",
+        markers=True,
+        title="전세가율 추이 (최근 12개월 중앙값 기준)",
+        labels={"year_month": "계약월", "jeonse_ratio_pct": "전세가율(%)"},
+    )
+    figure.update_traces(hovertemplate="계약월: %{x}<br>전세가율: %{y:.1f}%<extra></extra>")
+    return figure
+
+
 def transaction_volume_bar(
     ranking: pd.DataFrame,
     title: str,

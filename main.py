@@ -5,6 +5,7 @@ import json
 import sys
 
 from src.collect_kapt import collect_kapt
+from src.collect_rent import collect_rent
 from src.collect_trade import collect_trade
 from src.config import ensure_directories
 from src.export_kapt import export_kapt_excel
@@ -21,6 +22,15 @@ def parser() -> argparse.ArgumentParser:
     trade.add_argument("--end", required=True, help="종료월 YYYYMM")
     trade.add_argument("--force", action="store_true")
     trade.add_argument(
+        "--lawd-cd",
+        nargs="+",
+        help="수집할 부산 구·군 법정동 코드(예: 26350). 생략하면 16개 구·군 전체",
+    )
+    rent = commands.add_parser("collect-rent", help="국토교통부 아파트 전월세 실거래 수집")
+    rent.add_argument("--start", required=True, help="시작월 YYYYMM")
+    rent.add_argument("--end", required=True, help="종료월 YYYYMM")
+    rent.add_argument("--force", action="store_true")
+    rent.add_argument(
         "--lawd-cd",
         nargs="+",
         help="수집할 부산 구·군 법정동 코드(예: 26350). 생략하면 16개 구·군 전체",
@@ -48,6 +58,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "collect-trade":
             result = collect_trade(args.start, args.end, force=args.force, lawd_codes=args.lawd_cd)
+        elif args.command == "collect-rent":
+            result = collect_rent(args.start, args.end, force=args.force, lawd_codes=args.lawd_cd)
         elif args.command == "collect-kapt":
             result = collect_kapt(force=args.force)
         elif args.command == "geocode-kapt":

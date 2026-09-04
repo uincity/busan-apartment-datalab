@@ -29,7 +29,9 @@ from src.visualization import (
     complex_price_line,
     district_bar,
     dong_heatmap,
+    jeonse_ratio_line,
     region_transaction_bar,
+    rent_price_line,
     transaction_line,
     transaction_volume_bar,
 )
@@ -73,6 +75,21 @@ PANEL_COLUMNS = [
     "sigungu",
     "dong",
     "provisional",
+]
+RENT_PANEL_COLUMNS = [
+    "internal_complex_id",
+    "year_month",
+    "area_group",
+    "jeonse_count",
+    "monthly_rent_count",
+    "median_jeonse_deposit",
+    "median_monthly_deposit",
+    "median_monthly_rent",
+    "jeonse_count_12m",
+    "monthly_rent_count_12m",
+    "median_jeonse_deposit_12m",
+    "median_sale_price_12m",
+    "jeonse_ratio_12m",
 ]
 COMPLEX_SUMMARY_SOURCE_COLUMNS = [
     "year_month",
@@ -172,6 +189,37 @@ def load_complexes() -> pd.DataFrame:
         return pd.DataFrame()
     summary_source = pd.read_parquet(panel_path, columns=COMPLEX_SUMMARY_SOURCE_COLUMNS)
     return build_complex_summary(summary_source)
+
+
+@st.cache_resource(show_spinner=False)
+def load_rent_panel() -> pd.DataFrame:
+    path = PROCESSED / "busan_apartment_rent_monthly.parquet"
+    if not path.exists():
+        return pd.DataFrame(columns=RENT_PANEL_COLUMNS)
+    return _optimize_panel_dtypes(pd.read_parquet(path, columns=RENT_PANEL_COLUMNS))
+
+
+@st.cache_data(show_spinner="전월세 실거래를 불러오고 있습니다...", max_entries=16)
+def load_complex_rents(rent_version: int, complex_id: str) -> pd.DataFrame:
+    _ = rent_version
+    path = ROOT / "data" / "interim" / "rent_matched.parquet"
+    columns = [
+        "internal_complex_id",
+        "year_month",
+        "deal_date",
+        "area_sqm",
+        "area_group",
+        "rent_type",
+        "deposit_krw",
+        "monthly_rent_krw",
+        "floor",
+        "contract_type",
+        "renewal_right_used",
+        "provisional",
+    ]
+    if not path.exists():
+        return pd.DataFrame(columns=columns)
+    return pd.read_parquet(path, columns=columns, filters=[("internal_complex_id", "=", complex_id)])
 
 
 def load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -927,7 +975,19 @@ elif menu == "아파트 상세":
     detail_panel = filtered_panel[filtered_panel["internal_complex_id"].eq(complex_id)]
     if detail_panel.empty:
         detail_panel = panel[panel["internal_complex_id"].eq(complex_id)]
-    st.plotly_chart(complex_price_line(detail_panel, [complex_id]), width="stretch")
+    available_area_groups = sorted(detail_panel["area_group"].dropna().astype(str).unique())
+    default_area_index = available_area_groups.index("80_90") if "80_90" in available_area_groups else 0
+    detail_area_group = st.selectbox(
+        "가격 비교 평형",
+        available_area_groups,
+        index=default_area_index,
+        format_func=lambda value: AREA_GROUP_LABELS.get(value, value),
+        key="detail_area_group",
+    )
+    st.plotly_chart(
+        complex_price_line(detail_panel, [complex_id], area_group=detail_area_group),
+        width="stretch",
+    )
     st.plotly_chart(transaction_line(detail_panel, complex_id), width="stretch")
     area_latest = (
         detail_panel.sort_values("year_month")
@@ -948,6 +1008,100 @@ elif menu == "아파트 상세":
         ),
         width="stretch",
     )
+
+    st.subheader(":material/contract: 전월세 실거래와 전세가율")
+    st.caption(
+        "전세가율은 같은 단지·평형 그룹의 최근 12개월 전세 보증금 중앙값을 "
+        "최근 12개월 매매가 중앙값으로 나눈 값입니다."
+    )
+    rent_panel = load_rent_panel()
+    rent_detail_panel = rent_panel[
+        rent_panel["internal_complex_id"].astype(str).eq(str(complex_id))
+    ].copy()
+    if not detail_panel.empty and not rent_detail_panel.empty:
+        detail_months = detail_panel["year_month"].astype(str)
+        rent_detail_panel = rent_detail_panel[
+            rent_detail_panel["year_month"].astype(str).between(detail_months.min(), detail_months.max())
+        ]
+    selected_rent_area = rent_detail_panel[
+        rent_detail_panel["area_group"].astype(str).eq(detail_area_group)
+    ].sort_values("year_month")
+    if selected_rent_area.empty:
+        st.info(
+            "선택한 단지·평형의 전월세 데이터가 없습니다. "
+            "`python main.py collect-rent ...` 실행 후 `python main.py build`로 갱신해 주세요."
+        )
+    else:
+        latest_rent = selected_rent_area.iloc[-1]
+        with st.container(horizontal=True):
+            st.metric(
+                "12개월 전세 계약",
+                f"{float(latest_rent.get('jeonse_count_12m', 0)):,.0f}건",
+                border=True,
+            )
+            st.metric(
+                "12개월 월세 계약",
+                f"{float(latest_rent.get('monthly_rent_count_12m', 0)):,.0f}건",
+                border=True,
+            )
+            st.metric(
+                "전세 보증금 중앙값",
+                won(latest_rent.get("median_jeonse_deposit_12m")),
+                border=True,
+            )
+            st.metric(
+                "전세가율",
+                percent(latest_rent.get("jeonse_ratio_12m")),
+                border=True,
+            )
+        chart_left, chart_right = st.columns(2)
+        chart_left.plotly_chart(
+            rent_price_line(rent_detail_panel, complex_id, detail_area_group),
+            width="stretch",
+        )
+        chart_right.plotly_chart(
+            jeonse_ratio_line(rent_detail_panel, complex_id, detail_area_group),
+            width="stretch",
+        )
+
+        rent_path = ROOT / "data" / "interim" / "rent_matched.parquet"
+        rent_version = rent_path.stat().st_mtime_ns if rent_path.exists() else 0
+        recent_rents = load_complex_rents(rent_version, str(complex_id))
+        if not recent_rents.empty:
+            recent_rents = recent_rents[
+                recent_rents["area_group"].astype(str).eq(detail_area_group)
+                & recent_rents["year_month"].astype(str).between(
+                    selected_rent_area["year_month"].astype(str).min(),
+                    selected_rent_area["year_month"].astype(str).max(),
+                )
+            ].copy()
+        if recent_rents.empty:
+            st.caption("선택 기간에 표시할 개별 전월세 계약이 없습니다.")
+        else:
+            recent_rents["계약일"] = pd.to_datetime(recent_rents["deal_date"], errors="coerce")
+            recent_rents["전용면적(㎡)"] = pd.to_numeric(recent_rents["area_sqm"], errors="coerce")
+            recent_rents["구분"] = recent_rents["rent_type"]
+            recent_rents["보증금(억원)"] = pd.to_numeric(recent_rents["deposit_krw"], errors="coerce") / 100_000_000
+            recent_rents["월세(만원)"] = pd.to_numeric(recent_rents["monthly_rent_krw"], errors="coerce") / 10_000
+            recent_rents["층"] = pd.to_numeric(recent_rents["floor"], errors="coerce")
+            recent_rents["계약구분"] = recent_rents["contract_type"].fillna("").astype(str).str.strip()
+            recent_rents["갱신요구권"] = recent_rents["renewal_right_used"].fillna("").astype(str).str.strip()
+            display_rents = recent_rents.sort_values("계약일", ascending=False).head(50)[
+                ["계약일", "구분", "전용면적(㎡)", "층", "보증금(억원)", "월세(만원)", "계약구분", "갱신요구권"]
+            ]
+            st.markdown("**최근 전월세 계약**")
+            st.dataframe(
+                display_rents,
+                hide_index=True,
+                width="stretch",
+                column_config={
+                    "계약일": st.column_config.DateColumn(format="YYYY-MM-DD"),
+                    "전용면적(㎡)": st.column_config.NumberColumn(format="%.2f"),
+                    "층": st.column_config.NumberColumn(format="%.0f"),
+                    "보증금(억원)": st.column_config.NumberColumn(format="%.2f"),
+                    "월세(만원)": st.column_config.NumberColumn(format="%.0f"),
+                },
+            )
 elif menu == "아파트 비교":
     comparison_choices = filtered_complexes.drop_duplicates("internal_complex_id").copy()
     comparison_choices["internal_complex_id"] = comparison_choices["internal_complex_id"].astype(str)

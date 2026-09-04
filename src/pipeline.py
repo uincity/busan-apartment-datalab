@@ -12,10 +12,17 @@ import pandas as pd
 from .aggregate import build_monthly_panel
 from .analysis import data_quality_report, save_analysis_tables
 from .clean_kapt import clean_kapt
+from .clean_rent import clean_rent
 from .clean_trade import clean_trade
 from .config import ensure_directories, load_regions, load_settings
 from .geocode_kakao import apply_coordinate_cache
 from .match_complex import match_complexes, matching_rates
+from .rent_analysis import (
+    align_rent_matches_to_sales,
+    build_rent_monthly_panel,
+    cross_market_match_issues,
+    cross_market_road_issues,
+)
 from .utils import write_parquet
 
 
@@ -86,10 +93,17 @@ def _full_build() -> dict[str, int | float]:
     pd.DataFrame([rates]).to_csv(Path(settings["paths"]["reports"]) / "tables" / "matching_rates.csv", index=False, encoding="utf-8-sig")
     panel = build_monthly_panel(enriched, kapt, low_sample_threshold=int(settings["project"]["low_sample_threshold"]))
     write_parquet(panel, processed / "busan_apartment_monthly.parquet")
+    rent_stats = _build_rent_outputs(raw_dir, Path(settings["paths"]["interim"]), processed, kapt, enriched, settings)
     _save_analysis_tables(panel, processed, settings)
     quality = data_quality_report(raw_trade, trade_all, match_log, kapt, settings["quality"])
     quality.to_csv(Path(settings["paths"]["reports"]) / "data_quality_report.csv", index=False, encoding="utf-8-sig")
-    return {"raw_transactions": len(raw_trade), "analysis_transactions": len(enriched), "complexes": match_log.shape[0], **rates}
+    return {
+        "raw_transactions": len(raw_trade),
+        "analysis_transactions": len(enriched),
+        "complexes": match_log.shape[0],
+        **rent_stats,
+        **rates,
+    }
 
 
 def _path_period(path: Path) -> pd.Period | None:
@@ -192,6 +206,80 @@ def _save_matching_reports(
     pd.DataFrame([rates]).to_csv(reports / "tables" / "matching_rates.csv", index=False, encoding="utf-8-sig")
 
 
+def _build_rent_outputs(
+    raw_dir: Path,
+    interim: Path,
+    processed: Path,
+    kapt: pd.DataFrame,
+    sales: pd.DataFrame,
+    settings: dict,
+) -> dict[str, int | float]:
+    """전월세 원본이 있으면 전체 정제·매칭·전세가율 패널을 갱신한다."""
+    rent_paths = sorted((raw_dir / "rent").glob("*/*.parquet"))
+    raw_rent = _read_parquets(rent_paths)
+    if raw_rent.empty:
+        LOGGER.info("전월세 원본이 없어 임대차 산출물 생성을 건너뜁니다")
+        return {"raw_rent_transactions": 0, "analysis_rent_transactions": 0}
+
+    provisional_months = int(settings["project"]["provisional_months"])
+    raw_rent["lawd_cd"] = raw_rent.get("lawd_cd", "").astype(str).str.zfill(5)
+    rent = clean_rent(raw_rent, provisional_months=provisional_months)
+    regions = load_regions().rename(columns={"lawd_cd": "lawd_cd_region"})
+    rent = _merge_regions(rent, regions)
+    _, rent_match_log, _ = match_complexes(
+        rent,
+        kapt,
+        fuzzy_threshold=float(settings["matching"]["fuzzy_threshold"]),
+        manual_review_threshold=float(settings["matching"]["manual_review_threshold"]),
+    )
+    rent_match_log, crosswalk_audit = align_rent_matches_to_sales(
+        rent_match_log,
+        sales,
+        manual_review_threshold=float(settings["matching"]["manual_review_threshold"]),
+    )
+    match_columns = ["kapt_code", "internal_complex_id", "match_method", "match_score"]
+    enriched_rent = rent.merge(
+        rent_match_log[MATCH_KEY + match_columns].drop_duplicates(MATCH_KEY),
+        on=MATCH_KEY,
+        how="left",
+    )
+    crosswalk_audit.to_csv(
+        processed / "apartment_rent_sale_crosswalk.csv", index=False, encoding="utf-8-sig"
+    )
+    legal_issues = cross_market_match_issues(sales, enriched_rent)
+    legal_issues.insert(0, "issue_type", "legal_transaction_key")
+    road_issues = cross_market_road_issues(sales, enriched_rent)
+    road_issues.insert(0, "issue_type", "road_address_key")
+    cross_market_issues = pd.concat([legal_issues, road_issues], ignore_index=True)
+    cross_market_issues.to_csv(
+        processed / "apartment_rent_cross_market_issues.csv", index=False, encoding="utf-8-sig"
+    )
+    if not cross_market_issues.empty:
+        raise RuntimeError(
+            "매매·전월세 단지 ID 교차검증 실패: "
+            f"{len(cross_market_issues):,}개 단지키를 apartment_rent_cross_market_issues.csv에서 확인하세요."
+        )
+    rent_rates = matching_rates(rent_match_log, kapt)
+    write_parquet(rent, interim / "rent_clean.parquet")
+    write_parquet(enriched_rent, interim / "rent_matched.parquet")
+    rent_match_log.to_csv(processed / "apartment_rent_match_log.csv", index=False, encoding="utf-8-sig")
+    rent_match_log.loc[rent_match_log["manual_review"].fillna(True).astype(bool)].to_csv(
+        processed / "apartment_rent_match_manual_review.csv",
+        index=False,
+        encoding="utf-8-sig",
+    )
+    rent_panel = build_rent_monthly_panel(enriched_rent, sales)
+    write_parquet(rent_panel, processed / "busan_apartment_rent_monthly.parquet")
+    return {
+        "raw_rent_transactions": len(raw_rent),
+        "analysis_rent_transactions": len(enriched_rent),
+        "rent_crosswalk_corrections": len(crosswalk_audit),
+        "rent_cross_market_issues": len(cross_market_issues),
+        "rent_matched_pct": rent_rates["matched_pct"],
+        "rent_unmatched_pct": rent_rates["unmatched_pct"],
+    }
+
+
 def _incremental_build(rebuild_from: pd.Period) -> dict[str, int | float | str]:
     settings = load_settings()
     ensure_directories()
@@ -288,6 +376,7 @@ def _incremental_build(rebuild_from: pd.Period) -> dict[str, int | float | str]:
         enriched, kapt, low_sample_threshold=int(settings["project"]["low_sample_threshold"])
     )
     write_parquet(panel, processed / "busan_apartment_monthly.parquet")
+    rent_stats = _build_rent_outputs(raw_dir, interim, processed, kapt, enriched, settings)
     LOGGER.info("[build] 4/6 완료: %s행 (%.1f초)", f"{len(panel):,}", perf_counter() - step_started)
 
     step_started = perf_counter()
@@ -308,6 +397,7 @@ def _incremental_build(rebuild_from: pd.Period) -> dict[str, int | float | str]:
         "raw_transactions": len(raw_trade),
         "analysis_transactions": len(enriched),
         "complexes": len(match_log),
+        **rent_stats,
         **rates,
     }
 
@@ -359,8 +449,9 @@ def create_demo_data() -> dict[str, int | float]:
     ensure_directories()
     raw = Path(settings["paths"]["raw"])
     existing_trade = next((raw / "trade").glob("*/*.parquet"), None)
+    existing_rent = next((raw / "rent").glob("*/*.parquet"), None)
     existing_kapt = next((raw / "kapt").glob("*.parquet"), None)
-    if existing_trade is not None or existing_kapt is not None:
+    if existing_trade is not None or existing_rent is not None or existing_kapt is not None:
         raise RuntimeError(
             "demo는 기존 실데이터가 있는 data/raw에 쓸 수 없습니다. "
             "실데이터 보호를 위해 별도의 빈 작업 복사본에서 실행하세요."
@@ -374,7 +465,7 @@ def create_demo_data() -> dict[str, int | float]:
         ("A005", "동래래미안", "동래구", "온천동", "26260", "33", 2021, 800, 1040, 35.220, 129.080, 620_000_000),
         ("A006", "화명롯데캐슬", "북구", "화명동", "26320", "900", 2002, 1400, 1600, 35.235, 129.015, 480_000_000),
     ]
-    kapt_rows, trade_rows = [], []
+    kapt_rows, trade_rows, rent_rows = [], [], []
     periods = pd.period_range("2023-01", "2026-06", freq="M")
     for index, (code, name, sigungu, dong, lawd, jibun, build_year, households, parking, lat, lon, base_price) in enumerate(complexes):
         kapt_rows.append({
@@ -397,6 +488,24 @@ def create_demo_data() -> dict[str, int | float]:
                     "법정동": f" {dong} ", "아파트": name, "지번": jibun,
                     "도로명": f"{dong}로 {index + 1}", "해제여부": "", "lawd_cd": lawd,
                 })
+                if tx_no == 0:
+                    jeonse = price * (0.55 + 0.03 * np.sin(month_index / 6))
+                    rent_rows.append({
+                        "보증금액": f"{int(jeonse / 10_000):,}", "월세금액": "0",
+                        "전용면적": area, "층": int(rng.integers(2, 32)),
+                        "년": period.year, "월": period.month, "일": int(rng.integers(1, 25)),
+                        "건축년도": build_year, "법정동": dong, "아파트": name, "지번": jibun,
+                        "계약구분": "신규", "lawd_cd": lawd,
+                    })
+                elif tx_no == 1 and month_index % 2 == 0:
+                    rent_rows.append({
+                        "보증금액": f"{int(price * 0.10 / 10_000):,}",
+                        "월세금액": f"{int(price * 0.00035 / 10_000):,}",
+                        "전용면적": area, "층": int(rng.integers(2, 32)),
+                        "년": period.year, "월": period.month, "일": int(rng.integers(1, 25)),
+                        "건축년도": build_year, "법정동": dong, "아파트": name, "지번": jibun,
+                        "계약구분": "신규", "lawd_cd": lawd,
+                    })
     # 원본 보존/분석 제외 검증용 해제 거래 1건
     cancelled = dict(trade_rows[-1])
     cancelled["해제여부"] = "Y"
@@ -406,5 +515,9 @@ def create_demo_data() -> dict[str, int | float]:
     for ym, frame in trade_frame.groupby(trade_frame["년"].astype(str) + trade_frame["월"].astype(str).str.zfill(2)):
         for lawd, region_frame in frame.groupby("lawd_cd"):
             write_parquet(region_frame, raw / "trade" / ym / f"{lawd}.parquet")
+    rent_frame = pd.DataFrame(rent_rows)
+    for ym, frame in rent_frame.groupby(rent_frame["년"].astype(str) + rent_frame["월"].astype(str).str.zfill(2)):
+        for lawd, region_frame in frame.groupby("lawd_cd"):
+            write_parquet(region_frame, raw / "rent" / ym / f"{lawd}.parquet")
     write_parquet(pd.DataFrame(kapt_rows), raw / "kapt" / "busan_complexes.parquet")
     return build()

@@ -20,14 +20,15 @@ def _xml_items(content: bytes) -> tuple[list[dict[str, str | None]], int]:
     if result_code not in (None, "00", "000"):
         message = root.findtext(".//resultMsg") or "알 수 없는 API 오류"
         raise RuntimeError(f"공공데이터 API 오류 {result_code}: {message}")
-    items = []
-    for item in root.findall(".//item"):
-        items.append({child.tag.split("}")[-1]: child.text for child in item})
+    items = [
+        {child.tag.split("}")[-1]: child.text for child in item}
+        for item in root.findall(".//item")
+    ]
     total = int(root.findtext(".//totalCount") or len(items))
     return items, total
 
 
-def fetch_trade_month(
+def fetch_rent_month(
     lawd_cd: str,
     deal_ymd: str,
     service_key: str,
@@ -35,7 +36,7 @@ def fetch_trade_month(
     session: requests.Session | None = None,
     logger: logging.Logger | None = None,
 ) -> pd.DataFrame:
-    cfg = settings["trade_api"]
+    cfg = settings["rent_api"]
     client = session or requests.Session()
     log = logger or logging.getLogger(__name__)
     rows: list[dict[str, Any]] = []
@@ -69,7 +70,7 @@ def fetch_trade_month(
     return result
 
 
-def collect_trade(
+def collect_rent(
     start: str,
     end: str,
     *,
@@ -80,7 +81,7 @@ def collect_trade(
     ensure_directories()
     key = api_key("PUBLIC_DATA_API_KEY")
     if not key:
-        raise RuntimeError("PUBLIC_DATA_API_KEY가 없습니다. .env를 설정하거나 demo를 실행하세요.")
+        raise RuntimeError("PUBLIC_DATA_API_KEY가 없습니다. .env를 설정한 뒤 다시 실행하세요.")
     log = logging.getLogger(__name__)
     stats = {"downloaded": 0, "skipped": 0, "failed": 0, "empty": 0}
     regions = load_regions()
@@ -91,9 +92,10 @@ def collect_trade(
         if unknown:
             raise ValueError(f"부산 법정동 코드가 아닙니다: {', '.join(sorted(unknown))}")
         regions = regions.loc[regions["lawd_cd"].astype(str).str.zfill(5).isin(requested)].copy()
+
     with requests.Session() as session:
         for ym in month_range(start, end):
-            month_dir = Path(settings["paths"]["raw"]) / "trade" / ym
+            month_dir = Path(settings["paths"]["raw"]) / "rent" / ym
             month_dir.mkdir(parents=True, exist_ok=True)
             for region in regions.itertuples(index=False):
                 target = month_dir / f"{region.lawd_cd}.parquet"
@@ -101,13 +103,13 @@ def collect_trade(
                     stats["skipped"] += 1
                     continue
                 try:
-                    log.info("실거래 수집 region=%s month=%s", region.lawd_cd, ym)
-                    frame = fetch_trade_month(region.lawd_cd, ym, key, settings, session, log)
+                    log.info("전월세 수집 region=%s month=%s", region.lawd_cd, ym)
+                    frame = fetch_rent_month(region.lawd_cd, ym, key, settings, session, log)
                     if frame.empty:
                         stats["empty"] += 1
                     write_parquet(frame, target)
                     stats["downloaded"] += 1
-                except Exception as exc:  # 한 지역/월 실패가 전체 수집을 중단하지 않도록 격리
+                except Exception as exc:
                     stats["failed"] += 1
-                    log.error("실거래 수집 실패 region=%s month=%s: %s", region.lawd_cd, ym, exc)
+                    log.error("전월세 수집 실패 region=%s month=%s: %s", region.lawd_cd, ym, exc)
     return stats

@@ -87,7 +87,9 @@ def request_with_retry(
             )
             if attempt < max_retries:
                 time.sleep(backoff_factor * (2**attempt))
-    raise RuntimeError(f"API 요청 재시도 소진: {redacted_url(url)}") from last_error
+    # requests 예외 문자열에는 serviceKey가 포함된 전체 URL이 들어갈 수 있으므로
+    # 인증정보가 traceback으로 노출되지 않게 원본 예외 체인을 끊는다.
+    raise RuntimeError(f"API 요청 재시도 소진: {redacted_url(url)}") from None
 
 
 def month_range(start: str, end: str) -> list[str]:

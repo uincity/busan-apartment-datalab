@@ -63,6 +63,38 @@ def _parse_road_address(value: Any) -> tuple[str, str]:
     return normalize_address(match.group(1)), _road_number(match.group(2), match.group(3))
 
 
+def transaction_road_identity(frame: pd.DataFrame) -> pd.DataFrame:
+    """거래 API 도로명 형식 차이를 흡수한 도로명·번호·주소키를 반환한다."""
+    road_values = frame.get("road_name", pd.Series(index=frame.index, dtype="object"))
+    parsed_roads = road_values.map(_parse_road_address)
+    road_norm = [
+        parsed_road or normalize_address(raw_road)
+        for raw_road, (parsed_road, _) in zip(road_values, parsed_roads)
+    ]
+    number_norm = [
+        _road_number(main, sub) or parsed_number
+        for main, sub, (_, parsed_number) in zip(
+            frame.get("road_main", pd.Series(index=frame.index, dtype="object")),
+            frame.get("road_sub", pd.Series(index=frame.index, dtype="object")),
+            parsed_roads,
+        )
+    ]
+    sigungu_norm = frame.get(
+        "sigungu", pd.Series(index=frame.index, dtype="object")
+    ).map(normalize_address)
+    return pd.DataFrame(
+        {
+            "road_norm": road_norm,
+            "road_number_norm": number_norm,
+            "road_address_key": [
+                _key(sigungu, road, number)
+                for sigungu, road, number in zip(sigungu_norm, road_norm, number_norm)
+            ],
+        },
+        index=frame.index,
+    )
+
+
 def _key(*parts: Any) -> str:
     normalized = [str(part) if pd.notna(part) else "" for part in parts]
     return "|".join(normalized) if all(normalized) else ""
@@ -153,16 +185,12 @@ def match_complexes(
         frame["dong_norm"] = frame.get("dong", pd.Series(index=frame.index, dtype="object")).map(normalize_address)
         frame["jibun_norm"] = frame.get("jibun", pd.Series(index=frame.index, dtype="object")).map(normalize_lot_number)
 
-    complexes["road_norm"] = complexes.get(
-        "road_name", pd.Series(index=complexes.index, dtype="object")
-    ).map(normalize_address)
-    complexes["road_number_norm"] = [
-        _road_number(main, sub)
-        for main, sub in zip(
-            complexes.get("road_main", pd.Series(index=complexes.index, dtype="object")),
-            complexes.get("road_sub", pd.Series(index=complexes.index, dtype="object")),
-        )
-    ]
+    # 전월세 API의 roadnm은 매매 API와 달리 "수영로 261"처럼 건물번호까지
+    # 포함하는 경우가 있다. 도로명과 번호를 먼저 분리하고, 별도 번호 필드가
+    # 있으면 그 값을 우선해 K-apt 도로명주소와 동일한 키를 만든다.
+    trade_road_identity = transaction_road_identity(complexes)
+    complexes["road_norm"] = trade_road_identity["road_norm"]
+    complexes["road_number_norm"] = trade_road_identity["road_number_norm"]
     parsed_roads = k.get("road_address", pd.Series(index=k.index, dtype="object")).map(_parse_road_address)
     k["road_norm"] = parsed_roads.str[0]
     k["road_number_norm"] = parsed_roads.str[1]

@@ -68,3 +68,21 @@ def test_exact_legal_address_matches_when_road_address_is_unavailable():
 
     assert enriched.loc[0, "kapt_code"] == "K2"
     assert log.loc[0, "match_method"] == "legal_address_exact"
+
+
+def test_rent_style_road_name_with_building_number_matches_kapt_address():
+    trade = pd.DataFrame([{
+        "lawd_cd": "26290", "sigungu": "남구", "dong": "대연동", "jibun": "1903",
+        "road_name": "수영로 261", "road_main": 261, "road_sub": 0,
+        "complex_name": "대연SKVIEWHills", "complex_name_normalized": "대연skviewhills",
+    }])
+    kapt = pd.DataFrame([{
+        "kapt_code": "A10026094", "sigungu": "남구", "dong": "대연동", "jibun": "9999",
+        "road_address": "부산광역시 남구 수영로 261",
+        "complex_name": "대연sk뷰힐스아파트", "complex_name_normalized": "대연sk뷰힐스",
+    }])
+
+    enriched, log, _ = match_complexes(trade, kapt)
+
+    assert enriched.loc[0, "kapt_code"] == "A10026094"
+    assert log.loc[0, "match_method"] == "road_address_exact"

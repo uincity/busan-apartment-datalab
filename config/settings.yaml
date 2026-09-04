@@ -10,6 +10,14 @@ trade_api:
   max_retries: 4
   backoff_factor: 1.5
 
+rent_api:
+  # 공공데이터포털 15126474, 아파트 전월세 실거래가 자료
+  base_url: "https://apis.data.go.kr/1613000/RTMSDataSvcAptRent/getRTMSDataSvcAptRent"
+  num_rows: 1000
+  timeout: 30
+  max_retries: 4
+  backoff_factor: 1.5
+
 kapt_api:
   list_base_url: "https://apis.data.go.kr/1613000/AptListService4"
   basis_base_url: "https://apis.data.go.kr/1613000/AptBasisInfoServiceV5"

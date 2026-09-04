@@ -66,6 +66,32 @@ RECOVERY_WATCH_COLUMN_LABELS.update(
 
 DISPLAY_COLUMN_LABELS = RECOVERY_WATCH_COLUMN_LABELS
 
+WATCH_INTEGER_SUFFIXES = {
+    "세대수": "세대",
+    "연식(년)": "년",
+    "총 주차대수": "대",
+    "최근 3개월 거래량": "건",
+    "최근 6개월 거래량": "건",
+    "최근 12개월 거래량": "건",
+    "직전 6개월 거래량": "건",
+    "84㎡ 최근 6개월 표본수": "건",
+}
+WATCH_PERCENT_COLUMNS = {
+    "12개월 거래회전율",
+    "3개월 가격변화율",
+    "6개월 가격변화율",
+    "12개월 가격변화율",
+    "고점 대비 하락률",
+    "저점 대비 회복률",
+    "동 평균 대비 할인율",
+}
+WATCH_TWO_DECIMAL_SUFFIXES = {
+    "세대당 주차대수": "대",
+    "84㎡ 기준가격(억원)": "억",
+    "84㎡ 누적 고점(억원)": "억",
+    "84㎡ 누적 저점(억원)": "억",
+}
+
 
 def localize_dataframe(frame: pd.DataFrame) -> pd.DataFrame:
     """내부 영문 컬럼명을 화면 표시용 한글 컬럼명으로 변환한다."""
@@ -103,6 +129,71 @@ def localize_recovery_watchlist(watch: pd.DataFrame) -> pd.DataFrame:
     if unknown:
         raise KeyError(f"한글 표시명이 정의되지 않은 시장회복 컬럼입니다: {unknown}")
     return display.rename(columns=RECOVERY_WATCH_COLUMN_LABELS)
+
+
+def build_watch_table_data(display: pd.DataFrame) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    """Watch 표시 자료를 정렬 가능한 더블클릭 표 데이터로 변환한다."""
+    columns: list[dict[str, object]] = []
+    for index, label in enumerate(display.columns):
+        numeric = pd.api.types.is_numeric_dtype(display[label].dtype)
+        columns.append(
+            {
+                "key": f"column_{index}",
+                "label": str(label),
+                "numeric": bool(numeric),
+                "sort_key": f"column_{index}_sort",
+            }
+        )
+
+    rows: list[dict[str, object]] = []
+    for _, source_row in display.iterrows():
+        complex_id = source_row.get("단지 ID")
+        row: dict[str, object] = {
+            "complex_id": "" if pd.isna(complex_id) else str(complex_id),
+            "complex_name": _format_watch_value("단지명", source_row.get("단지명")),
+        }
+        for index, label in enumerate(display.columns):
+            value = source_row[label]
+            row[f"column_{index}"] = _format_watch_value(str(label), value)
+            row[f"column_{index}_sort"] = _watch_sort_value(value)
+        rows.append(row)
+    return rows, columns
+
+
+def _format_watch_value(label: str, value: object) -> str:
+    if value is None or pd.isna(value):
+        return "-"
+    if label == "사용승인일":
+        return pd.Timestamp(value).strftime("%Y-%m-%d")
+    if label in WATCH_INTEGER_SUFFIXES:
+        return f"{float(value):,.0f}{WATCH_INTEGER_SUFFIXES[label]}"
+    if label in WATCH_PERCENT_COLUMNS:
+        return f"{float(value):.1%}"
+    if label in WATCH_TWO_DECIMAL_SUFFIXES:
+        return f"{float(value):,.2f}{WATCH_TWO_DECIMAL_SUFFIXES[label]}"
+    if label == "84㎡ 평당가격(만원)":
+        return f"{float(value):,.0f}만원"
+    if label in {"위도", "경도"}:
+        return f"{float(value):.6f}"
+    if isinstance(value, float) and value.is_integer():
+        return f"{int(value):,}"
+    if isinstance(value, int):
+        return f"{value:,}"
+    return str(value)
+
+
+def _watch_sort_value(value: object) -> object:
+    if value is None or pd.isna(value):
+        return None
+    if isinstance(value, pd.Timestamp):
+        return value.isoformat()
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return int(value)
+    if isinstance(value, float):
+        return float(value)
+    return str(value)
 
 
 def recovery_watch_periods(latest_month: str) -> dict[str, str]:

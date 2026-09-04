@@ -3,11 +3,39 @@ import pandas as pd
 from src.watch_display import (
     DISPLAY_COLUMN_LABELS,
     RECOVERY_WATCH_COLUMN_LABELS,
+    build_watch_table_data,
     localize_dataframe,
     localize_old_apartment_watchlist,
     localize_recovery_watchlist,
     recovery_watch_periods,
 )
+
+
+def test_build_watch_table_data_preserves_raw_sort_values_and_complex_id():
+    display = pd.DataFrame(
+        {
+            "단지 ID": ["A2", "A1"],
+            "단지명": ["두번째", "첫번째"],
+            "세대수": [1000.0, 200.0],
+            "84㎡ 기준가격(억원)": [12.5, 3.0],
+            "사용승인일": pd.to_datetime(["2001-02-03", "1999-12-31"]),
+        }
+    )
+
+    rows, columns = build_watch_table_data(display)
+
+    assert rows[0]["complex_id"] == "A2"
+    assert rows[0]["complex_name"] == "두번째"
+    assert rows[0]["column_2"] == "1,000세대"
+    assert rows[0]["column_2_sort"] == 1000.0
+    assert rows[0]["column_3"] == "12.50억"
+    assert rows[0]["column_4"] == "2001-02-03"
+    assert columns[2] == {
+        "key": "column_2",
+        "label": "세대수",
+        "numeric": True,
+        "sort_key": "column_2_sort",
+    }
 
 
 def test_localize_recovery_watchlist_translates_every_column_and_unit():

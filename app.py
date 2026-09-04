@@ -16,6 +16,7 @@ from src.apartment_ranking import (
 from src.analysis import build_complex_summary, build_district_summary, build_dong_summary
 from src.config import load_settings
 from src.dashboard_state import default_comparison_ids, selected_complex_id
+from src.double_click_table import double_click_table
 from src.recent_price_search import build_recent_price_summary, filter_recent_price_summary
 from src.sidebar_navigation import render_sidebar_navigation
 from src.transaction_ranking import build_region_transaction_summary, build_transaction_ranking
@@ -34,6 +35,7 @@ from src.visualization import (
 )
 from src.watch_display import (
     DISPLAY_COLUMN_LABELS,
+    build_watch_table_data,
     localize_dataframe,
     localize_old_apartment_watchlist,
     localize_recovery_watchlist,
@@ -254,6 +256,16 @@ def open_transaction_selection(chart_key: str) -> None:
     complex_id = selected_complex_id(st.session_state.get(chart_key))
     if complex_id:
         st.session_state["detail_complex_id"] = complex_id
+        st.session_state["menu"] = "아파트 상세"
+
+
+def open_table_selection(table_key: str) -> None:
+    selection = st.session_state.get(table_key)
+    complex_id = getattr(selection, "double_click", None)
+    if complex_id is None and isinstance(selection, dict):
+        complex_id = selection.get("double_click")
+    if complex_id:
+        st.session_state["detail_complex_id"] = str(complex_id)
         st.session_state["menu"] = "아파트 상세"
 
 
@@ -727,37 +739,54 @@ def render_recent_price_search(trade_version: int, complex_version: int) -> None
         ("max_price_1m", "최고 거래가(억원)"),
     ]:
         display[target] = display[source] / 100_000_000
-    st.dataframe(
-        display,
-        column_order=[
-            "순번",
-            "complex_name",
-            "sigungu",
-            "dong",
-            "중앙 실거래가(억원)",
-            "transaction_count_1m",
-            "최저 거래가(억원)",
-            "최고 거래가(억원)",
-            "households",
-            "parking_per_household",
-            "apartment_age",
-            "road_address",
-        ],
-        column_config={
-            "complex_name": "아파트 단지",
-            "sigungu": "구·군",
-            "dong": "법정동",
-            "중앙 실거래가(억원)": st.column_config.NumberColumn(format="%.2f억"),
-            "transaction_count_1m": st.column_config.NumberColumn("거래량", format="%d건"),
-            "최저 거래가(억원)": st.column_config.NumberColumn(format="%.2f억"),
-            "최고 거래가(억원)": st.column_config.NumberColumn(format="%.2f억"),
-            "households": st.column_config.NumberColumn("세대수", format="%d세대"),
-            "parking_per_household": st.column_config.NumberColumn("세대당 주차", format="%.2f대"),
-            "apartment_age": st.column_config.NumberColumn("연식", format="%d년"),
-            "road_address": "도로명주소",
-        },
-        hide_index=True,
-        width="stretch",
+    table_rows = []
+    for _, row in display.iterrows():
+        road_address = row["road_address"]
+        table_rows.append(
+            {
+                "complex_id": str(row["internal_complex_id"]),
+                "sequence": f"{int(row['순번']):,}",
+                "sequence_sort": int(row["순번"]),
+                "complex_name": str(row["complex_name"]),
+                "sigungu": str(row["sigungu"]),
+                "dong": str(row["dong"]),
+                "median_price": f"{float(row['중앙 실거래가(억원)']):,.2f}억",
+                "median_price_sort": float(row["중앙 실거래가(억원)"]),
+                "transaction_count": f"{int(row['transaction_count_1m']):,}건",
+                "transaction_count_sort": int(row["transaction_count_1m"]),
+                "min_price": f"{float(row['최저 거래가(억원)']):,.2f}억",
+                "min_price_sort": float(row["최저 거래가(억원)"]),
+                "max_price": f"{float(row['최고 거래가(억원)']):,.2f}억",
+                "max_price_sort": float(row["최고 거래가(억원)"]),
+                "households": f"{int(row['households']):,}세대",
+                "households_sort": int(row["households"]),
+                "parking": f"{float(row['parking_per_household']):,.2f}대",
+                "parking_sort": float(row["parking_per_household"]),
+                "age": f"{int(row['apartment_age']):,}년",
+                "age_sort": int(row["apartment_age"]),
+                "road_address": "-" if pd.isna(road_address) else str(road_address),
+            }
+        )
+    table_columns = [
+        {"key": "sequence", "label": "순번", "numeric": True, "sort_key": "sequence_sort"},
+        {"key": "complex_name", "label": "아파트 단지"},
+        {"key": "sigungu", "label": "구·군"},
+        {"key": "dong", "label": "법정동"},
+        {"key": "median_price", "label": "중앙 실거래가(억원)", "numeric": True, "sort_key": "median_price_sort"},
+        {"key": "transaction_count", "label": "거래량", "numeric": True, "sort_key": "transaction_count_sort"},
+        {"key": "min_price", "label": "최저 거래가(억원)", "numeric": True, "sort_key": "min_price_sort"},
+        {"key": "max_price", "label": "최고 거래가(억원)", "numeric": True, "sort_key": "max_price_sort"},
+        {"key": "households", "label": "세대수", "numeric": True, "sort_key": "households_sort"},
+        {"key": "parking", "label": "세대당 주차", "numeric": True, "sort_key": "parking_sort"},
+        {"key": "age", "label": "연식", "numeric": True, "sort_key": "age_sort"},
+        {"key": "road_address", "label": "도로명주소"},
+    ]
+    st.caption("열 제목을 클릭하면 정렬되고, 아파트 단지를 더블클릭하면 해당 단지의 상세 화면으로 이동합니다.")
+    double_click_table(
+        table_rows,
+        table_columns,
+        key="recent_price_results",
+        on_double_click=partial(open_table_selection, "recent_price_results"),
     )
     if summary.attrs.get("provisional", False):
         st.caption("※ 선택 기간에 신고가 진행 중인 잠정 데이터가 포함되어 결과가 변경될 수 있습니다.")
@@ -984,41 +1013,27 @@ elif menu == "시장회복 Watch":
         st.metric("관찰 단지", f"{len(watch):,}개", border=True)
         st.metric("기준 최신월", periods["latest"], border=True)
     display_watch = localize_recovery_watchlist(watch)
-    st.dataframe(
-        display_watch,
-        column_config={
-            "단지명": st.column_config.TextColumn(pinned=True),
-            "사용승인일": st.column_config.DateColumn(format="YYYY-MM-DD"),
-            "세대수": st.column_config.NumberColumn(format="%d세대"),
-            "연식(년)": st.column_config.NumberColumn(format="%d년"),
-            "총 주차대수": st.column_config.NumberColumn(format="%d대"),
-            "세대당 주차대수": st.column_config.NumberColumn(format="%.2f대"),
-            "최근 3개월 거래량": st.column_config.NumberColumn(format="%d건"),
-            "최근 6개월 거래량": st.column_config.NumberColumn(format="%d건"),
-            "최근 12개월 거래량": st.column_config.NumberColumn(format="%d건"),
-            "직전 6개월 거래량": st.column_config.NumberColumn(format="%d건"),
-            "84㎡ 최근 6개월 표본수": st.column_config.NumberColumn(format="%d건"),
-            "12개월 거래회전율": st.column_config.NumberColumn(format="percent"),
-            "84㎡ 기준가격(억원)": st.column_config.NumberColumn(format="%.2f억"),
-            "84㎡ 평당가격(만원)": st.column_config.NumberColumn(format="%.0f만원"),
-            "3개월 가격변화율": st.column_config.NumberColumn(format="percent"),
-            "6개월 가격변화율": st.column_config.NumberColumn(format="percent"),
-            "12개월 가격변화율": st.column_config.NumberColumn(format="percent"),
-            "84㎡ 누적 고점(억원)": st.column_config.NumberColumn(format="%.2f억"),
-            "고점 대비 하락률": st.column_config.NumberColumn(format="percent"),
-            "84㎡ 누적 저점(억원)": st.column_config.NumberColumn(format="%.2f억"),
-            "저점 대비 회복률": st.column_config.NumberColumn(format="percent"),
-            "위도": st.column_config.NumberColumn(format="%.6f"),
-            "경도": st.column_config.NumberColumn(format="%.6f"),
-        },
-        width="stretch",
-        hide_index=True,
+    recovery_rows, recovery_columns = build_watch_table_data(display_watch)
+    st.caption("열 제목을 클릭하면 정렬되고, 아파트 단지를 더블클릭하면 해당 단지의 상세 화면으로 이동합니다.")
+    double_click_table(
+        recovery_rows,
+        recovery_columns,
+        key="recovery_watch_results",
+        on_double_click=partial(open_table_selection, "recovery_watch_results"),
     )
 else:
     path = PROCESSED / "old_apartment_watchlist.csv"
     watch = pd.read_csv(path) if path.exists() else pd.DataFrame()
     st.info("30년 이상 단지를 데이터 지표로 정리한 목록이며 재건축 가능성을 판단하지 않습니다.")
-    st.dataframe(localize_old_apartment_watchlist(watch), width="stretch", hide_index=True)
+    display_watch = localize_old_apartment_watchlist(watch)
+    old_rows, old_columns = build_watch_table_data(display_watch)
+    st.caption("열 제목을 클릭하면 정렬되고, 아파트 단지를 더블클릭하면 해당 단지의 상세 화면으로 이동합니다.")
+    double_click_table(
+        old_rows,
+        old_columns,
+        key="old_apartment_watch_results",
+        on_double_click=partial(open_table_selection, "old_apartment_watch_results"),
+    )
 
 if filtered_panel["provisional"].fillna(False).any():
     st.caption("※ 최신 월에는 신고가 진행 중인 잠정 데이터가 포함될 수 있습니다.")

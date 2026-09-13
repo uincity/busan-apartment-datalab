@@ -10,6 +10,7 @@ def test_sidebar_navigation_preserves_existing_route_values():
         "구군 비교",
         "동 비교",
         "아파트 상세",
+        "학교 상세",
         "아파트 비교",
         "시장회복 Watch",
         "노후단지 Watch",

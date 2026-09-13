@@ -32,3 +32,41 @@ def selected_complex_id(selection: Any) -> str | None:
     if custom_data not in (None, ""):
         return str(custom_data)
     return None
+
+
+def selected_map_entity(selection: Any) -> tuple[str, str] | None:
+    """지도 customdata의 명시적 객체 종류와 안정 ID를 반환한다."""
+    if not selection:
+        return None
+    points = selection.get("selection", {}).get("points", [])
+    if not points:
+        return None
+    custom = points[0].get("customdata")
+    if not isinstance(custom, (list, tuple)) or len(custom) < 2:
+        # 이전 아파트 전용 차트 계약을 호환한다.
+        legacy = selected_complex_id(selection)
+        return ("apartment", legacy) if legacy else None
+    entity_type, entity_id = str(custom[0]), str(custom[1])
+    if entity_type not in {"apartment", "elementary", "middle"}:
+        return "apartment", entity_type
+    if not entity_id:
+        return None
+    return entity_type, entity_id
+
+
+def selected_pydeck_entity(selection: Any) -> tuple[str, str] | None:
+    """Streamlit PyDeck 선택 객체에서 명시적 객체 종류와 안정 ID를 반환한다."""
+    if not selection:
+        return None
+    selected = selection.get("selection", {})
+    objects = selected.get("objects", {}) if selected else {}
+    for layer_id in ("school-elementary", "school-middle", "apartments"):
+        rows = objects.get(layer_id, [])
+        if not rows:
+            continue
+        row = rows[0]
+        entity_type = str(row.get("entity_type", ""))
+        entity_id = str(row.get("entity_id", ""))
+        if entity_type in {"apartment", "elementary", "middle"} and entity_id:
+            return entity_type, entity_id
+    return None

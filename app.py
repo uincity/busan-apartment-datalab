@@ -15,17 +15,30 @@ from src.apartment_ranking import (
 )
 from src.analysis import build_complex_summary, build_district_summary, build_dong_summary
 from src.config import load_settings
-from src.dashboard_state import default_comparison_ids, selected_complex_id
+from src.dashboard_state import default_comparison_ids, selected_complex_id, selected_pydeck_entity
 from src.double_click_table import double_click_table
 from src.recent_price_search import build_recent_price_summary, filter_recent_price_summary
 from src.sidebar_navigation import render_sidebar_navigation
+from src.school_data import ELEMENTARY_HISTORY_FILE, MIDDLE_HISTORY_FILE, SNAPSHOT_DIR, load_school_snapshot, select_top_schools
+from src.school_display import (
+    REVIEW_REASON_LABELS,
+    elementary_detail_rows,
+    elementary_history_view,
+    integer,
+    label_score,
+    middle_detail_rows,
+    middle_history_view,
+    number,
+    translate,
+    year,
+)
 from src.transaction_ranking import build_region_transaction_summary, build_transaction_ranking
 from src.visualization import (
     DEFAULT_MAP_FOCUS_ID,
     DEFAULT_MAP_FOCUS_NAME,
     add_map_price_metrics,
     apartment_ranking_bar,
-    complex_map,
+    combined_pydeck_map,
     complex_price_line,
     district_bar,
     dong_heatmap,
@@ -227,6 +240,19 @@ def load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
     return load_panel(), load_complexes()
 
 
+@st.cache_data(show_spinner=False, max_entries=4)
+def load_schools(snapshot_version: int) -> tuple[pd.DataFrame, dict]:
+    _ = snapshot_version
+    return load_school_snapshot(ROOT)
+
+
+@st.cache_data(show_spinner=False, max_entries=8)
+def load_school_history(filename: str, snapshot_version: int) -> pd.DataFrame:
+    _ = snapshot_version
+    path = ROOT / SNAPSHOT_DIR / filename
+    return pd.read_parquet(path) if path.is_file() else pd.DataFrame()
+
+
 @st.cache_data(
     show_spinner="실거래 평당가 순위 데이터를 불러오고 있습니다...",
     max_entries=1,
@@ -294,10 +320,16 @@ def add_approval_year(complexes: pd.DataFrame) -> pd.DataFrame:
 
 
 def open_map_selection() -> None:
-    complex_id = selected_complex_id(st.session_state.get("apartment_map_selection"))
-    if complex_id:
-        st.session_state["detail_complex_id"] = complex_id
+    entity = selected_pydeck_entity(st.session_state.get("apartment_map_selection"))
+    if not entity:
+        return
+    entity_type, entity_id = entity
+    if entity_type == "apartment":
+        st.session_state["detail_complex_id"] = entity_id
         st.session_state["menu"] = "아파트 상세"
+    else:
+        st.session_state["selected_school_id"] = entity_id
+        st.session_state["selected_school_level"] = entity_type
 
 
 def open_transaction_selection(chart_key: str) -> None:
@@ -315,6 +347,65 @@ def open_table_selection(table_key: str) -> None:
     if complex_id:
         st.session_state["detail_complex_id"] = str(complex_id)
         st.session_state["menu"] = "아파트 상세"
+
+
+def open_school_detail() -> None:
+    st.session_state["menu"] = "학교 상세"
+
+
+def return_to_map() -> None:
+    st.session_state["menu"] = "부산 Overview"
+
+
+def render_school_detail(schools: pd.DataFrame, snapshot_version: int) -> None:
+    school_id = str(st.session_state.get("selected_school_id", ""))
+    selected = schools[schools["school_id"].astype(str).eq(school_id)]
+    if selected.empty:
+        st.warning("선택한 학교를 현재 snapshot에서 찾을 수 없습니다.")
+        st.button("지도로 돌아가기", icon=":material/arrow_back:", on_click=return_to_map)
+        return
+    row = selected.iloc[0]
+    st.button("지도로 돌아가기", icon=":material/arrow_back:", on_click=return_to_map)
+    st.subheader(f":material/school: {row['school_name']}")
+    st.caption(f"{row.get('address', '자료 없음')} · {row.get('sigungu', '자료 없음')} · 자료 기준 {year(row.get('data_year'))}")
+    with st.container(horizontal=True):
+        st.metric(label_score(row["school_level"]), number(row["score"], "점"), border=True)
+        st.metric("부산 순위", integer(row.get("busan_rank"), "위"), border=True)
+        st.metric("구·군 순위", integer(row.get("district_rank"), "위"), border=True)
+        if row["school_level"] == "elementary":
+            st.metric("총학생수", integer(row.get("total_students"), "명"), border=True)
+        else:
+            st.metric("관측연도 수", integer(row.get("available_year_count"), "개년"), border=True)
+    if row["school_level"] == "elementary":
+        st.info("초등학교 수요점수는 학생 규모·이동·성장·학년 구성을 종합한 지표이며, 학교 교육의 질이나 아파트 가격 프리미엄을 직접 의미하지 않습니다.")
+        st.dataframe(elementary_detail_rows(row), hide_index=True, width="stretch")
+        with st.expander("지표 설명"):
+            st.markdown(
+                "- **보정 고학년 지수**: 학교의 저학년 대비 고학년 학생 비율을 같은 해 부산 전체 비율로 나눈 지표입니다.\n"
+                "- **보정 동일학년군 성장률**: 같은 학년군이 다음 학년으로 진급한 뒤의 학생수 변화율에서 같은 기간 부산 전체 변화율을 차감한 지표입니다."
+            )
+        history = load_school_history(ELEMENTARY_HISTORY_FILE, snapshot_version)
+        history = history[history["school_id"].astype(str).eq(school_id)].sort_values("data_year")
+        if not history.empty:
+            st.subheader("연도별 학생수와 이동")
+            chart = history.rename(columns={"data_year": "연도", "total_students": "총학생수"})
+            st.line_chart(chart, x="연도", y="총학생수", x_label="연도", y_label="학생 수(명)")
+            st.dataframe(elementary_history_view(history), hide_index=True, width="stretch")
+    else:
+        st.info("중학교 진학성과 점수는 선택고 진학성과를 보정·가중한 상대지표이며, 해당 아파트의 배정 가능성이나 개인의 진학 확률을 의미하지 않습니다.")
+        st.dataframe(middle_detail_rows(row), hide_index=True, width="stretch")
+        if bool(row.get("sample_warning", False)):
+            st.warning("소표본 또는 자료 안정성 주의가 필요한 학교입니다.")
+        st.caption(f"관측기간: {row.get('observation_years', '자료 없음')} · 최근 관측연도: {year(row.get('latest_observation_year'))}")
+        history = load_school_history(MIDDLE_HISTORY_FILE, snapshot_version)
+        history = history[history["school_id"].astype(str).eq(school_id)].sort_values("year")
+        if not history.empty:
+            st.subheader("연도별 졸업자 및 관측 진학성과")
+            st.caption("아래 비율은 연도별 관측값이며, 보정·가중한 중학교 점수와 구분됩니다.")
+            st.dataframe(middle_history_view(history), hide_index=True, width="stretch")
+    warnings = [str(row.get(key)) for key in ("review_reason",) if pd.notna(row.get(key)) and str(row.get(key)).strip()]
+    if warnings:
+        st.warning("자료 품질 확인: " + " · ".join(translate(value, REVIEW_REASON_LABELS) for value in warnings))
 
 
 def filter_data(panel: pd.DataFrame, complexes: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -358,6 +449,7 @@ def filter_data(panel: pd.DataFrame, complexes: pd.DataFrame) -> tuple[pd.DataFr
         "구·군",
         district_options,
         placeholder="전체 구·군",
+        key="filter_districts",
     )
     if districts:
         scoped = scoped[scoped["sigungu"].isin(districts)]
@@ -366,6 +458,7 @@ def filter_data(panel: pd.DataFrame, complexes: pd.DataFrame) -> tuple[pd.DataFr
         "법정동",
         dong_options,
         placeholder="전체 법정동",
+        key="filter_dongs",
     )
     if dongs:
         scoped = scoped[scoped["dong"].isin(dongs)]
@@ -843,6 +936,22 @@ def render_recent_price_search(trade_version: int, complex_version: int) -> None
 st.title(":material/apartment: 열심남의 부산 아파트 데이터랩")
 st.caption("실거래와 단지정보를 결합한 탐색 도구입니다. 투자 추천 또는 매수 신호가 아닙니다.")
 menu = render_sidebar_navigation()
+school_manifest_path = ROOT / SNAPSHOT_DIR / "manifest.json"
+school_snapshot_version = school_manifest_path.stat().st_mtime_ns if school_manifest_path.is_file() else 0
+try:
+    school_data, school_manifest = load_schools(school_snapshot_version)
+    school_error = None
+except Exception as exc:
+    school_data, school_manifest = pd.DataFrame(), {}
+    school_error = str(exc)
+if menu == "학교 상세":
+    if school_error:
+        st.warning(f"학교 snapshot을 읽을 수 없습니다: {school_error}")
+    elif school_data.empty:
+        st.warning("학교 snapshot이 없습니다. `python main.py sync-school-data --source ../busan_school_analysis`를 실행해 주세요.")
+    else:
+        render_school_detail(school_data, school_snapshot_version)
+    st.stop()
 if menu == "실거래가 단지 검색":
     recent_trade_path = ROOT / "data" / "interim" / "trade_matched.parquet"
     recent_complex_path = PROCESSED / "busan_complex_summary.csv"
@@ -883,17 +992,46 @@ if menu == "부산 Overview":
         f"기본 표시 조건: {DEFAULT_MIN_HOUSEHOLDS:,}세대 이상 · "
         f"사용승인 {DEFAULT_MIN_APPROVAL_YEAR}년 이후 · 구·군/법정동 전체"
     )
+    with st.container(horizontal=True, vertical_alignment="bottom"):
+        show_apartments = st.toggle("아파트", value=True, key="show_apartments")
+        show_elementary = st.toggle("초등학교", value=False, key="show_elementary")
+        show_middle = st.toggle("중학교", value=False, key="show_middle")
+        school_top_n = st.selectbox("학교 상위 N", [10, 20, 30, 50], index=2, key="school_top_n")
+        school_scope = st.segmented_control("학교 순위 범위", ["부산 전체", "선택 지역"], default="부산 전체", key="school_scope")
+    st.caption("학교 위치와 점수를 함께 표시합니다. 인접한 학교가 해당 아파트의 배정학교라는 뜻은 아닙니다.")
+    if st.session_state.get("filter_dongs"):
+        st.caption("학교 snapshot의 동 정보는 화면 필터에 사용하지 않으며 학교 지역 범위는 구·군까지만 지원합니다.")
+    if school_error:
+        st.warning(f"학교 레이어를 사용할 수 없습니다: {school_error}. 기존 아파트 지도는 계속 사용할 수 있습니다.")
+    elif school_data.empty and (show_elementary or show_middle):
+        st.info("학교 snapshot이 없습니다. `python main.py sync-school-data --source ../busan_school_analysis`를 실행해 주세요.")
+    selected_districts = st.session_state.get("filter_districts", [])
+    school_layers = []
+    for level, enabled in (("elementary", show_elementary), ("middle", show_middle)):
+        if enabled and not school_data.empty:
+            selected = select_top_schools(school_data, level, school_top_n, school_scope, selected_districts)
+            school_layers.append(selected)
+            located = int(selected["coordinate_valid"].sum())
+            label = "초등학교" if level == "elementary" else "중학교"
+            qualifier = f" 중 현재 지역 {len(selected)}개" if school_scope == "부산 전체" and selected_districts else ""
+            st.caption(f"{label}: 선정 {school_top_n}개{qualifier} / 지도 표시 {located}개 / 좌표 미확인 {len(selected) - located}개")
+    map_schools = pd.concat(school_layers, ignore_index=True) if school_layers else pd.DataFrame()
+    if not map_schools.empty:
+        map_schools = map_schools[map_schools["coordinate_valid"]]
     located_complexes = filtered_complexes.dropna(subset=["latitude", "longitude"])
-    if located_complexes.empty:
+    if located_complexes.empty and map_schools.empty:
         st.warning(
-            "현재 단지 데이터에 위도·경도가 없어 지도 마커를 표시할 수 없습니다. "
-            "K-apt 주소를 좌표로 변환해 latitude·longitude를 보강한 뒤 build를 다시 실행해 주세요.",
+            "현재 표시할 좌표가 없습니다. 아파트 좌표 또는 학교 snapshot을 확인해 주세요.",
             icon=":material/location_off:",
         )
     else:
-        st.caption("지도 마커를 클릭하면 해당 단지의 아파트 상세 화면으로 이동합니다.")
+        st.caption("지도 마커를 클릭하면 아파트 상세로 이동하거나 학교 요약 카드를 표시합니다.")
         map_complexes = add_map_price_metrics(located_complexes, filtered_panel)
-        st.caption("원 = 일반 단지 · 원 크기 = 세대수 · 색상 = 평균 실거래가 · 건물 아이콘 = 기준 단지")
+        map_complexes["entity_type"] = "apartment"
+        st.caption(
+            "초록 삼각형 = 초등학교 수요점수 · 보라 사각형 = 중학교 진학성과 점수 · "
+            "학교 점수가 높을수록 마커가 큽니다 · 초·중학교 점수는 서로 다른 지표이므로 직접적인 우열 비교 불가"
+        )
         st.caption("8억원 이상 고가 단지는 1억원 단위로 색상을 구분합니다.")
         available_map_ids = set(map_complexes["internal_complex_id"].astype(str))
         selected_map_focus_id = str(
@@ -901,13 +1039,25 @@ if menu == "부산 Overview":
         )
         if selected_map_focus_id not in available_map_ids:
             selected_map_focus_id = DEFAULT_MAP_FOCUS_ID
-        st.plotly_chart(
-            complex_map(map_complexes, focus_complex_id=selected_map_focus_id),
+        map_apartments = map_complexes if show_apartments else map_complexes.iloc[0:0]
+        st.pydeck_chart(
+            combined_pydeck_map(map_apartments, map_schools, focus_complex_id=selected_map_focus_id),
             width="stretch",
+            height=650,
             key="apartment_map_selection",
             on_select=open_map_selection,
-            selection_mode="points",
+            selection_mode="single-object",
         )
+        selected_school_id = str(st.session_state.get("selected_school_id", ""))
+        selected_school = map_schools[map_schools["school_id"].astype(str).eq(selected_school_id)] if selected_school_id else pd.DataFrame()
+        if not selected_school.empty:
+            school = selected_school.iloc[0]
+            with st.container(border=True):
+                st.markdown(f"**{school['school_name']} · {label_score(school['school_level'])} {school['score']:.1f}점**")
+                st.caption(f"{school['sigungu']} · 부산 {int(school['busan_rank'])}위 · 자료 기준 {int(school['data_year'])}년")
+                if pd.notna(school.get("review_reason")):
+                    st.warning(f"자료 품질 확인: {school['review_reason']}")
+                st.button("학교 상세 보기", icon=":material/open_in_new:", on_click=open_school_detail)
     with st.container(horizontal=True):
         st.metric("단지", f"{filtered_complexes['internal_complex_id'].nunique():,}개", border=True)
         st.metric("세대", f"{filtered_complexes['households'].sum():,.0f}세대", border=True)

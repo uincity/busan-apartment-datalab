@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "synced_at": "2026-09-13T01:46:23.365698+00:00",
+  "source_root": "busan_school_analysis",
+  "source_files": {
+    "elementary_scores": {
+      "path": "data\\processed\\phase9_elementary_demand_scores.parquet",
+      "sha256": "87bb5be716a8605c315f9fb319e6f95ef6f0f71f11c79eb79b775e442763c6b3"
+    },
+    "elementary_history": {
+      "path": "data\\processed\\phase9_elementary_student_longitudinal.parquet",
+      "sha256": "0a525e09b460e34995fc6c338d09c6d1077d0e30c7a6b1393092f9af41fa0e85"
+    },
+    "middle_scores": {
+      "path": "data\\processed\\middle_school_scores.parquet",
+      "sha256": "becb24248ac3b67cd6cf7911050a2d9dfdd4e035079aaf103633768a695bef2c"
+    },
+    "middle_history": {
+      "path": "data\\processed\\middle_school_advancement.parquet",
+      "sha256": "a990f152ca88c4f2d908ff5c948bdd6370079831a0408b59b5709abc6023c8be"
+    },
+    "schools": {
+      "path": "data\\processed\\schools.parquet",
+      "sha256": "e7818696abc7674ba068a766f0378d1367375c97e59ab646de52c9b95a1d74ce"
+    }
+  },
+  "rows": {
+    "map": 485,
+    "elementary_history": 909,
+    "middle_history": 509
+  },
+  "reference_years": {
+    "elementary_score": [
+      2026
+    ],
+    "elementary_observations": [
+      2024,
+      2025,
+      2026
+    ],
+    "middle_score": [
+      2025
+    ],
+    "middle_observations": [
+      2023,
+      2024,
+      2025
+    ]
+  },
+  "excluded_from_map": {
+    "invalid_coordinates": 2
+  }
+}

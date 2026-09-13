@@ -24,6 +24,7 @@ NAVIGATION_GROUPS = [
         "아파트 분석",
         [
             ("아파트 상세", ":material/apartment:", "complex_detail"),
+            ("학교 상세", ":material/school:", "school_detail"),
             ("아파트 비교", ":material/compare_arrows:", "complex_compare"),
         ],
     ),

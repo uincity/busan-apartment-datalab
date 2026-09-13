@@ -36,6 +36,11 @@ data/processed/**/*
 !data/processed/busan_complex_summary.csv
 !data/processed/recovery_watchlist.csv
 !data/processed/old_apartment_watchlist.csv
+!data/processed/schools/
+!data/processed/schools/school_map.parquet
+!data/processed/schools/elementary_history.parquet
+!data/processed/schools/middle_history.parquet
+!data/processed/schools/manifest.json
 
 # 현재 앱이 직접 사용하는 유일한 interim 예외
 !data/interim/trade_matched.parquet

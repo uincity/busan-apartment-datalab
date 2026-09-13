@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+import math
+from urllib.parse import quote
+
 import pandas as pd
+import pydeck as pdk
+from pydeck.types import String
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+
+from .school_display import label_score
 
 
 DEFAULT_MAP_FOCUS_ID = "A10026094"
@@ -603,7 +610,7 @@ def complex_map(df: pd.DataFrame, focus_complex_id: str = DEFAULT_MAP_FOCUS_ID) 
             lon="longitude",
             hover_name="complex_name",
             hover_data=hover_data,
-            custom_data=["internal_complex_id"],
+            custom_data=["entity_type", "internal_complex_id"] if "entity_type" in priced else ["internal_complex_id"],
             color=MAP_PRICE_BAND_COLUMN,
             color_discrete_map=MAP_PRICE_COLORS,
             category_orders={MAP_PRICE_BAND_COLUMN: MAP_PRICE_BANDS},
@@ -703,3 +710,100 @@ def complex_map(df: pd.DataFrame, focus_complex_id: str = DEFAULT_MAP_FOCUS_ID) 
         margin={"l": 0, "r": 0, "t": 45, "b": 0},
     )
     return fig
+
+
+SCHOOL_COLORS = {"elementary": "#16834A", "middle": "#7542C8"}
+SCHOOL_MARKER_SCALE = 0.5
+SCHOOL_MARKER_MIN_PX = 16.0 * SCHOOL_MARKER_SCALE
+SCHOOL_MARKER_MAX_PX = 56.0 * SCHOOL_MARKER_SCALE
+
+
+def school_icon_size(score: pd.Series) -> pd.Series:
+    """원점수 기반 16~56px 크기에 공통 화면 배율을 한 번 적용한다."""
+    numeric = pd.to_numeric(score, errors="coerce")
+    valid = numeric.notna() & numeric.map(math.isfinite) & numeric.between(0, 100)
+    result = pd.Series(float("nan"), index=score.index, dtype="float64")
+    result.loc[valid] = (16.0 + 0.40 * numeric.loc[valid]) * SCHOOL_MARKER_SCALE
+    return result
+
+
+def _school_svg_data_uri(level: str, color: str) -> str:
+    """투명 여백 없이 전체 크기를 차지하는 삼각형 또는 사각형 SVG를 반환한다."""
+    if level == "elementary":
+        shape = f'<polygon points="32,0 64,64 0,64" fill="{color}"/><polygon points="32,3 61,62 3,62" fill="none" stroke="#FFFFFF" stroke-width="2"/>'
+    elif level == "middle":
+        shape = f'<rect width="64" height="64" fill="{color}"/><rect x="2" y="2" width="60" height="60" fill="none" stroke="#FFFFFF" stroke-width="2"/>'
+    else:
+        raise ValueError(f"지원하지 않는 학교 구분: {level}")
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">{shape}</svg>'
+    return "data:image/svg+xml;charset=utf-8," + quote(svg)
+
+
+def _hex_rgb(color: str, alpha: int = 215) -> list[int]:
+    return [int(color[index:index + 2], 16) for index in (1, 3, 5)] + [alpha]
+
+
+def combined_pydeck_map(apartments: pd.DataFrame, schools: pd.DataFrame, focus_complex_id: str = DEFAULT_MAP_FOCUS_ID) -> pdk.Deck:
+    """아파트 점과 자체 포함 학교 SVG를 한 WebGL 지도에 렌더링한다."""
+    layers: list[pdk.Layer] = []
+    center_frames: list[pd.DataFrame] = []
+    if not apartments.empty:
+        work = apartments.dropna(subset=["latitude", "longitude"]).copy()
+        work["average_transaction_price_eok"] = pd.to_numeric(work.get(MAP_PRICE_COLUMN), errors="coerce") / 100_000_000
+        work[MAP_PRICE_BAND_COLUMN] = classify_map_price_bands(work["average_transaction_price_eok"]).astype("object")
+        work["map_color"] = work[MAP_PRICE_BAND_COLUMN].map(MAP_PRICE_COLORS).fillna("#CBD5E1").map(_hex_rgb)
+        households = pd.to_numeric(work["households"], errors="coerce").fillna(0).clip(lower=0)
+        maximum = max(float(households.max()), 1.0)
+        work["map_radius_px"] = 5.0 + 15.0 * (households / maximum).pow(0.5)
+        work["entity_type"] = "apartment"
+        work["entity_id"] = work["internal_complex_id"].astype(str)
+        work["display_name"] = work["complex_name"].astype(str)
+        work["detail_line"] = work["sigungu"].astype(str) + " · " + work["dong"].astype(str)
+        work["metric_line"] = "세대수 " + households.map(lambda value: f"{value:,.0f}")
+        focus = work["entity_id"].eq(str(focus_complex_id))
+        if focus.any():
+            work.loc[focus, "map_color"] = pd.Series(
+                [_hex_rgb(MAP_FOCUS_COLOR, 255)] * int(focus.sum()), index=work.index[focus], dtype="object"
+            )
+        work.loc[focus, "map_radius_px"] = 22.0
+        layers.append(pdk.Layer(
+            "ScatterplotLayer", work, id="apartments", get_position="[longitude, latitude]",
+            get_fill_color="map_color", get_radius="map_radius_px", radius_units=String("pixels"),
+            radius_min_pixels=5, radius_max_pixels=22, stroked=True, get_line_color=[255, 255, 255, 230],
+            line_width_min_pixels=1, pickable=True, auto_highlight=True,
+        ))
+        center_frames.append(work[["latitude", "longitude"]])
+
+    if not schools.empty:
+        school_work = schools.copy()
+        school_work["icon_size_px"] = school_icon_size(school_work["score"])
+        school_work = school_work.dropna(subset=["latitude", "longitude", "icon_size_px"]).copy()
+        school_work["entity_type"] = school_work["school_level"].astype(str)
+        school_work["entity_id"] = school_work["school_id"].astype(str)
+        school_work["display_name"] = school_work["school_name"].astype(str)
+        school_work["detail_line"] = school_work["sigungu"].fillna("자료 없음").astype(str)
+        school_work["metric_line"] = school_work.apply(lambda row: f"{label_score(row['school_level'])} {row['score']:.1f}점", axis=1)
+        for level, group in school_work.groupby("school_level", sort=False):
+            if level not in SCHOOL_COLORS:
+                continue
+            icon = {"url": _school_svg_data_uri(level, SCHOOL_COLORS[level]), "width": 64, "height": 64, "anchorX": 32, "anchorY": 32}
+            group = group.copy()
+            group["icon_data"] = [icon] * len(group)
+            layers.append(pdk.Layer(
+                "IconLayer", group, id=f"school-{level}", get_position="[longitude, latitude]",
+                get_icon="icon_data", get_size="icon_size_px", size_units=String("pixels"), size_scale=1,
+                size_min_pixels=SCHOOL_MARKER_MIN_PX, size_max_pixels=SCHOOL_MARKER_MAX_PX,
+                billboard=True, pickable=True, auto_highlight=True,
+            ))
+        center_frames.append(school_work[["latitude", "longitude"]])
+
+    centers = pd.concat(center_frames, ignore_index=True) if center_frames else pd.DataFrame({"latitude": [35.1796], "longitude": [129.0756]})
+    focus = apartments[apartments.get("internal_complex_id", pd.Series(dtype="object")).astype(str).eq(str(focus_complex_id))] if not apartments.empty else pd.DataFrame()
+    latitude = float(focus.iloc[0]["latitude"]) if not focus.empty else float(centers["latitude"].mean())
+    longitude = float(focus.iloc[0]["longitude"]) if not focus.empty else float(centers["longitude"].mean())
+    return pdk.Deck(
+        map_style=None,
+        initial_view_state=pdk.ViewState(latitude=latitude, longitude=longitude, zoom=DEFAULT_MAP_ZOOM if not focus.empty else 9, pitch=0),
+        layers=layers,
+        tooltip={"html": "<b>{display_name}</b><br>{detail_line}<br>{metric_line}", "style": {"backgroundColor": "#172033", "color": "white"}},
+    )

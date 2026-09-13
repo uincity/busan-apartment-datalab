@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from src.collect_kapt import collect_kapt
 from src.collect_rent import collect_rent
@@ -11,6 +12,8 @@ from src.config import ensure_directories
 from src.export_kapt import export_kapt_excel
 from src.geocode_kakao import geocode_kapt
 from src.pipeline import build, create_demo_data, report
+from src.school_data import SNAPSHOT_DIR, build_school_snapshot
+from src.config import ROOT
 from src.utils import setup_logging
 
 
@@ -48,6 +51,8 @@ def parser() -> argparse.ArgumentParser:
     )
     commands.add_parser("report", help="기존 월 패널에서 보고서 재생성")
     commands.add_parser("demo", help="API 키 없이 데모 데이터와 대시보드 자료 생성")
+    school = commands.add_parser("sync-school-data", help="학교 분석 결과를 조회용 snapshot으로 동기화")
+    school.add_argument("--source", required=True, type=str, help="busan_school_analysis 프로젝트 경로")
     return root
 
 
@@ -70,6 +75,8 @@ def main(argv: list[str] | None = None) -> int:
             result = build(incremental=args.incremental)
         elif args.command == "report":
             result = report()
+        elif args.command == "sync-school-data":
+            result = build_school_snapshot(Path(args.source), ROOT / SNAPSHOT_DIR)
         else:
             result = create_demo_data()
         print(json.dumps(result, ensure_ascii=False, indent=2, default=str))

@@ -326,6 +326,7 @@ def open_map_selection() -> None:
     entity_type, entity_id = entity
     if entity_type == "apartment":
         st.session_state["detail_complex_id"] = entity_id
+        st.session_state.pop("detail_sigungu", None)
         st.session_state["menu"] = "아파트 상세"
     else:
         st.session_state["selected_school_id"] = entity_id
@@ -336,6 +337,7 @@ def open_transaction_selection(chart_key: str) -> None:
     complex_id = selected_complex_id(st.session_state.get(chart_key))
     if complex_id:
         st.session_state["detail_complex_id"] = complex_id
+        st.session_state.pop("detail_sigungu", None)
         st.session_state["menu"] = "아파트 상세"
 
 
@@ -346,6 +348,7 @@ def open_table_selection(table_key: str) -> None:
         complex_id = selection.get("double_click")
     if complex_id:
         st.session_state["detail_complex_id"] = str(complex_id)
+        st.session_state.pop("detail_sigungu", None)
         st.session_state["menu"] = "아파트 상세"
 
 
@@ -1093,8 +1096,26 @@ elif menu == "아파트 상세":
             choices = pd.concat([choices, requested_complex], ignore_index=True).sort_values(
                 ["sigungu", "complex_name"]
             )
-    choice_ids = choices["internal_complex_id"].astype(str).tolist()
-    display_names = dict(zip(choices["internal_complex_id"].astype(str), choices["complex_name"].astype(str)))
+    district_options = sorted(choices["sigungu"].dropna().astype(str).unique())
+    requested_rows = choices[choices["internal_complex_id"].astype(str).eq(requested_id)]
+    requested_district = str(requested_rows.iloc[0]["sigungu"]) if not requested_rows.empty else ""
+    if st.session_state.get("detail_sigungu") not in district_options:
+        st.session_state["detail_sigungu"] = (
+            requested_district if requested_district in district_options else district_options[0]
+        )
+    selected_district = st.selectbox(
+        "구·군 선택",
+        district_options,
+        key="detail_sigungu",
+    )
+    district_choices = choices[choices["sigungu"].astype(str).eq(selected_district)]
+    choice_ids = district_choices["internal_complex_id"].astype(str).tolist()
+    display_names = dict(
+        zip(
+            district_choices["internal_complex_id"].astype(str),
+            district_choices["complex_name"].astype(str),
+        )
+    )
     if DEFAULT_MAP_FOCUS_ID in display_names:
         display_names[DEFAULT_MAP_FOCUS_ID] = DEFAULT_MAP_FOCUS_NAME
     default_id = DEFAULT_MAP_FOCUS_ID if DEFAULT_MAP_FOCUS_ID in choice_ids else choice_ids[0]
@@ -1106,7 +1127,7 @@ elif menu == "아파트 상세":
         format_func=display_names.get,
         key="detail_complex_id",
     )
-    row = choices[choices["internal_complex_id"].astype(str).eq(selected_id)].iloc[0]
+    row = district_choices[district_choices["internal_complex_id"].astype(str).eq(selected_id)].iloc[0]
     selected_name = display_names[selected_id]
     st.subheader(selected_name)
     st.caption(str(row.get("road_address", "")))

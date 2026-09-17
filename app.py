@@ -16,6 +16,7 @@ from src.apartment_ranking import (
 from src.analysis import build_complex_summary, build_district_summary, build_dong_summary
 from src.config import load_settings
 from src.dashboard_state import default_comparison_ids, selected_complex_id, selected_pydeck_entity
+from src.data_update_status import SUMMARY_PATH, load_dashboard_summary
 from src.double_click_table import double_click_table
 from src.recent_price_search import build_recent_price_summary, filter_recent_price_summary
 from src.sidebar_navigation import render_sidebar_navigation
@@ -238,6 +239,85 @@ def load_complex_rents(rent_version: int, complex_id: str) -> pd.DataFrame:
 def load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
     """호환용 진입점. 큰 객체는 세션별 복사 없이 프로세스에서 공유한다."""
     return load_panel(), load_complexes()
+
+
+@st.cache_data(show_spinner=False, max_entries=2)
+def load_update_status(summary_version: int) -> dict:
+    _ = summary_version
+    return load_dashboard_summary()
+
+
+def _status_time(value: str | None) -> str:
+    if not value:
+        return "수집 시각 미기록"
+    timestamp = pd.Timestamp(value)
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.tz_localize("Asia/Seoul")
+    else:
+        timestamp = timestamp.tz_convert("Asia/Seoul")
+    return timestamp.strftime("%Y.%m.%d %H:%M KST")
+
+
+def _status_month(value: str) -> str:
+    period = pd.Period(value, freq="M")
+    return f"{period.year}년 {period.month:02d}월"
+
+
+def render_update_status() -> None:
+    st.subheader("실거래 데이터 현황")
+    try:
+        version = SUMMARY_PATH.stat().st_mtime_ns
+        summary = load_update_status(version)
+    except Exception:
+        st.warning("업데이트 현황 확인 불가")
+        st.caption("현황 파일이 없거나 손상되었습니다. 분석 화면은 사용 가능한 기존 데이터로 계속 표시됩니다.")
+        return
+
+    columns = st.columns(2)
+    labels = {"trade": "매매", "rent": "전월세"}
+    for column, kind in zip(columns, ("trade", "rent"), strict=True):
+        item = summary[kind]
+        partial = item["successful_regions"] < item["target_regions"]
+        state = " · 일부 지역 반영" if partial else ""
+        with column.container(border=True):
+            st.markdown(f"**{labels[kind]}**")
+            st.write(
+                f"수록 기간 {item['period_start'].replace('-', '.')}~{item['period_end'].replace('-', '.')}  |  "
+                f"{_status_month(item['latest_month'])} 반영 {item['reflected_count']:,}건{state}"
+            )
+            st.caption(
+                f"최신 수집 성공: {_status_time(item.get('latest_success_at'))} · "
+                f"해당 월 수집 현황: {item['successful_regions']}/{item['target_regions']}개 구·군"
+            )
+            if kind == "rent":
+                detail = item.get("count_details", {})
+                st.caption(
+                    f"전세 {detail.get('jeonse', 0):,}건 · 월세 {detail.get('monthly_rent', 0):,}건"
+                )
+
+    st.caption(f"전체 데이터 기준 · {summary.get('scope', '현재 앱 탑재 분석 데이터 전체')}")
+    with st.expander("구·군별 수집 상세"):
+        rows = []
+        for kind in ("trade", "rent"):
+            item = summary[kind]
+            for record in item.get("regions", []):
+                status_label = {"success": "성공", "failed": "실패", "unreadable": "확인 불가"}.get(record["status"], "미수집")
+                if record.get("last_attempt_status") == "failed" and record.get("data_available"):
+                    status_label = "기존 성공 데이터 유지 (최근 시도 실패)"
+                rows.append(
+                    {
+                        "거래 유형": labels[kind],
+                        "기준 월": _status_month(item["latest_month"]),
+                        "구·군": record.get("region_name", record["lawd_cd"]),
+                        "상태": status_label,
+                        "수집 성공 시각": _status_time(record.get("successful_at")),
+                        "원본 건수": record.get("raw_count"),
+                        "정제 후 반영 건수": record.get("processed_count"),
+                    }
+                )
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+        st.caption(f"대시보드 반영: {_status_time(summary.get('dashboard_applied_at'))} · 데이터 버전 {summary['data_version']}")
+    st.caption("계약월 기준 자료입니다. 신고 지연 및 정정·취소 반영에 따라 최근 월과 과거 월의 건수가 변경될 수 있습니다.")
 
 
 @st.cache_data(show_spinner=False, max_entries=4)
@@ -938,6 +1018,7 @@ def render_recent_price_search(trade_version: int, complex_version: int) -> None
 
 st.title(":material/apartment: 열심남의 부산 아파트 데이터랩")
 st.caption("실거래와 단지정보를 결합한 탐색 도구입니다. 투자 추천 또는 매수 신호가 아닙니다.")
+render_update_status()
 menu = render_sidebar_navigation()
 school_manifest_path = ROOT / SNAPSHOT_DIR / "manifest.json"
 school_snapshot_version = school_manifest_path.stat().st_mtime_ns if school_manifest_path.is_file() else 0

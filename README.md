@@ -73,6 +73,13 @@ python main.py build --incremental
 python main.py report
 ```
 
+`collect-trade`와 `collect-rent`는 거래유형·기준월·구군별 시도/성공 상태를
+`data/metadata/collection_status.json`에 기록합니다. `build`가 성공하면 현재 앱의 최종
+월 패널에서 기간과 최신 월 거래 건수를 집계해
+`data/processed/data_update_status.json`을 마지막에 교체합니다. 대시보드는 이 작은 요약
+파일만 읽으므로 화면 필터 변경 때 원본 파일을 다시 읽지 않습니다. 과거 수집 시각은
+원본만으로 추정하지 않으며, 기존 데이터는 `수집 시각 미기록`으로 표시됩니다.
+
 월별 실거래 데이터만 추가·갱신한 경우에는 `build --incremental`을 사용합니다. 기존 빌드의 정제·단지 매칭 결과 중 잠정 구간 이전 자료를 재사용하고, 최근 잠정 구간과 새로 추가된 월만 다시 정제·매칭합니다. K-apt 원본 또는 잠정 구간보다 오래된 실거래 원본이 기존 빌드 이후 변경되었다면 정확성을 위해 자동으로 전체 빌드로 전환합니다. 월 패널의 롤링·누적 지표는 전체 이력에 의존하므로 다시 계산하며, 장시간 작업은 단계 및 그룹 진행률을 로그로 표시합니다.
 
 `build`는 다음 순서로 실행됩니다.
@@ -175,3 +182,12 @@ busan_apartment_analysis/
 현재 구현은 매매·전월세 실거래/K-apt 수집, 정제, 3단계 매칭, 월 패널, 전세가율·회전율·가격 추세, 3종 요약, 대표단지 점수, 두 Watch 목록, 품질검증, Plotly/Streamlit 탐색까지입니다.
 
 아직 구현하지 않은 확장 기능은 지하철·학교·학군·상권·해안·공원·고도, 입주물량, 인구, 한국부동산원 지수와 가격예측 모델입니다. 다음 개발 우선순위는 ① 실제 API 응답 샘플로 K-apt 필드 별칭 회귀검증, ② 수동 매칭 보정 테이블, ③ 공간정보 플러그인 계층, ④ 시계열 기반 모델 검증 순입니다.
+
+
+## 데이터 갱신 작업
+실거래 신고 지연·정정·취소 때문에 최신 월뿐 아니라 직전 1~2개월도 다시 수집하는 것이 안전
+
+python main.py collect-trade --start 202607 --end 202609 --force
+python main.py collect-rent --start 202607 --end 202609 --force
+
+python main.py build --incremental

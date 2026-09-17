@@ -1,0 +1,193 @@
+{
+  "key_checks": [
+    {
+      "path": "data/raw/kapt/busan_complexes.parquet",
+      "columns": [
+        "kaptCode"
+      ],
+      "rows": 1468,
+      "complete_rows": 1468,
+      "distinct_complete": 1468,
+      "duplicate_complete_rows": 0
+    },
+    {
+      "path": "data/interim/kapt_clean.parquet",
+      "columns": [
+        "kapt_code"
+      ],
+      "rows": 1468,
+      "complete_rows": 1468,
+      "distinct_complete": 1468,
+      "duplicate_complete_rows": 0
+    },
+    {
+      "path": "data/interim/kapt_coordinates.parquet",
+      "columns": [
+        "kapt_code"
+      ],
+      "rows": 1468,
+      "complete_rows": 1468,
+      "distinct_complete": 1468,
+      "duplicate_complete_rows": 0
+    },
+    {
+      "path": "data/interim/trade_matched.parquet",
+      "columns": [
+        "internal_complex_id"
+      ],
+      "rows": 223932,
+      "complete_rows": 223932,
+      "distinct_complete": 4409,
+      "duplicate_complete_rows": 219523
+    },
+    {
+      "path": "data/interim/rent_matched.parquet",
+      "columns": [
+        "internal_complex_id"
+      ],
+      "rows": 420419,
+      "complete_rows": 420419,
+      "distinct_complete": 4377,
+      "duplicate_complete_rows": 416042
+    },
+    {
+      "path": "data/processed/busan_apartment_monthly.parquet",
+      "columns": [
+        "internal_complex_id",
+        "year_month",
+        "area_group"
+      ],
+      "rows": 581334,
+      "complete_rows": 581334,
+      "distinct_complete": 581334,
+      "duplicate_complete_rows": 0
+    },
+    {
+      "path": "data/processed/busan_apartment_rent_monthly.parquet",
+      "columns": [
+        "internal_complex_id",
+        "year_month",
+        "area_group"
+      ],
+      "rows": 660468,
+      "complete_rows": 660468,
+      "distinct_complete": 660468,
+      "duplicate_complete_rows": 0
+    },
+    {
+      "path": "data/processed/schools/school_map.parquet",
+      "columns": [
+        "school_id"
+      ],
+      "rows": 485,
+      "complete_rows": 485,
+      "distinct_complete": 485,
+      "duplicate_complete_rows": 0
+    },
+    {
+      "path": "data/processed/schools/elementary_history.parquet",
+      "columns": [
+        "school_id",
+        "data_year"
+      ],
+      "rows": 909,
+      "complete_rows": 909,
+      "distinct_complete": 909,
+      "duplicate_complete_rows": 0
+    },
+    {
+      "path": "data/processed/schools/middle_history.parquet",
+      "columns": [
+        "school_id",
+        "year"
+      ],
+      "rows": 509,
+      "complete_rows": 509,
+      "distinct_complete": 509,
+      "duplicate_complete_rows": 0
+    }
+  ],
+  "overlaps": [
+    {
+      "left": "data/raw/kapt/busan_complexes.parquet:kaptCode",
+      "right": "data/interim/kapt_clean.parquet:kapt_code",
+      "left_distinct": 1468,
+      "right_distinct": 1468,
+      "intersection": 1468,
+      "left_coverage_pct": 100.0,
+      "right_coverage_pct": 100.0
+    },
+    {
+      "left": "data/interim/kapt_clean.parquet:kapt_code",
+      "right": "data/interim/kapt_coordinates.parquet:kapt_code",
+      "left_distinct": 1468,
+      "right_distinct": 1468,
+      "intersection": 1468,
+      "left_coverage_pct": 100.0,
+      "right_coverage_pct": 100.0
+    },
+    {
+      "left": "data/interim/kapt_clean.parquet:kapt_code",
+      "right": "data/interim/trade_matched.parquet:kapt_code",
+      "left_distinct": 1468,
+      "right_distinct": 1356,
+      "intersection": 1356,
+      "left_coverage_pct": 92.37,
+      "right_coverage_pct": 100.0
+    },
+    {
+      "left": "data/interim/kapt_clean.parquet:kapt_code",
+      "right": "data/interim/rent_matched.parquet:kapt_code",
+      "left_distinct": 1468,
+      "right_distinct": 1434,
+      "intersection": 1434,
+      "left_coverage_pct": 97.68,
+      "right_coverage_pct": 100.0
+    },
+    {
+      "left": "data/interim/trade_matched.parquet:internal_complex_id",
+      "right": "data/processed/busan_apartment_monthly.parquet:internal_complex_id",
+      "left_distinct": 4409,
+      "right_distinct": 4409,
+      "intersection": 4409,
+      "left_coverage_pct": 100.0,
+      "right_coverage_pct": 100.0
+    },
+    {
+      "left": "data/interim/rent_matched.parquet:internal_complex_id",
+      "right": "data/processed/busan_apartment_rent_monthly.parquet:internal_complex_id",
+      "left_distinct": 4377,
+      "right_distinct": 4743,
+      "intersection": 4377,
+      "left_coverage_pct": 100.0,
+      "right_coverage_pct": 92.28
+    },
+    {
+      "left": "data/processed/busan_apartment_monthly.parquet:internal_complex_id",
+      "right": "data/processed/busan_apartment_rent_monthly.parquet:internal_complex_id",
+      "left_distinct": 4409,
+      "right_distinct": 4743,
+      "intersection": 4409,
+      "left_coverage_pct": 100.0,
+      "right_coverage_pct": 92.96
+    },
+    {
+      "left": "data/processed/schools/school_map.parquet:school_id",
+      "right": "data/processed/schools/elementary_history.parquet:school_id",
+      "left_distinct": 485,
+      "right_distinct": 307,
+      "intersection": 302,
+      "left_coverage_pct": 62.27,
+      "right_coverage_pct": 98.37
+    },
+    {
+      "left": "data/processed/schools/school_map.parquet:school_id",
+      "right": "data/processed/schools/middle_history.parquet:school_id",
+      "left_distinct": 485,
+      "right_distinct": 170,
+      "intersection": 170,
+      "left_coverage_pct": 35.05,
+      "right_coverage_pct": 100.0
+    }
+  ]
+}

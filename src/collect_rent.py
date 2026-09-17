@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
+from datetime import datetime
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,7 @@ import pandas as pd
 import requests
 
 from .config import api_key, ensure_directories, load_regions, load_settings
+from .data_update_status import KST, new_batch_id, record_collection_result
 from .utils import month_range, request_with_retry, write_parquet
 
 
@@ -84,6 +86,7 @@ def collect_rent(
         raise RuntimeError("PUBLIC_DATA_API_KEY가 없습니다. .env를 설정한 뒤 다시 실행하세요.")
     log = logging.getLogger(__name__)
     stats = {"downloaded": 0, "skipped": 0, "failed": 0, "empty": 0}
+    batch_id = new_batch_id("rent")
     regions = load_regions()
     if lawd_codes:
         requested = {str(code).zfill(5) for code in lawd_codes}
@@ -103,13 +106,23 @@ def collect_rent(
                     stats["skipped"] += 1
                     continue
                 try:
+                    attempted_at = datetime.now(KST).isoformat(timespec="seconds")
                     log.info("전월세 수집 region=%s month=%s", region.lawd_cd, ym)
                     frame = fetch_rent_month(region.lawd_cd, ym, key, settings, session, log)
                     if frame.empty:
                         stats["empty"] += 1
                     write_parquet(frame, target)
+                    record_collection_result(
+                        "rent", ym, region.lawd_cd, status="success", raw_count=len(frame),
+                        source_file=target, batch_id=batch_id, attempted_at=attempted_at,
+                    )
                     stats["downloaded"] += 1
                 except Exception as exc:
                     stats["failed"] += 1
+                    record_collection_result(
+                        "rent", ym, region.lawd_cd, status="failed", raw_count=None,
+                        source_file=target, batch_id=batch_id, attempted_at=attempted_at,
+                        error=type(exc).__name__,
+                    )
                     log.error("전월세 수집 실패 region=%s month=%s: %s", region.lawd_cd, ym, exc)
     return stats

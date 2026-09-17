@@ -36,6 +36,7 @@ data/processed/**/*
 !data/processed/busan_complex_summary.csv
 !data/processed/recovery_watchlist.csv
 !data/processed/old_apartment_watchlist.csv
+!data/processed/data_update_status.json
 !data/processed/schools/
 !data/processed/schools/school_map.parquet
 !data/processed/schools/elementary_history.parquet

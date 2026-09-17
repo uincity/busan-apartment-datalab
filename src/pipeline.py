@@ -15,6 +15,7 @@ from .clean_kapt import clean_kapt
 from .clean_rent import clean_rent
 from .clean_trade import clean_trade
 from .config import ensure_directories, load_regions, load_settings
+from .data_update_status import write_dashboard_summary
 from .geocode_kakao import apply_coordinate_cache
 from .match_complex import match_complexes, matching_rates
 from .rent_analysis import (
@@ -407,6 +408,7 @@ def build(*, incremental: bool = False) -> dict[str, int | float | str]:
         LOGGER.info("[build] 전체 빌드 시작")
         started = perf_counter()
         result = _full_build()
+        result["data_update_status"] = write_dashboard_summary()["data_version"]
         LOGGER.info("[build] 전체 빌드 완료 (%.1f초)", perf_counter() - started)
         return {"build_mode": "full", "rebuild_from": "all", **result}
 
@@ -431,7 +433,9 @@ def build(*, incremental: bool = False) -> dict[str, int | float | str]:
         result["fallback_reason"] = reason
         return result
     LOGGER.info("[build] 증분 빌드: %s 이전 데이터는 기존 결과를 재사용합니다", rebuild_from)
-    return _incremental_build(rebuild_from)
+    result = _incremental_build(rebuild_from)
+    result["data_update_status"] = write_dashboard_summary()["data_version"]
+    return result
 
 
 def report() -> dict[str, int]:

@@ -1020,6 +1020,10 @@ st.title(":material/apartment: 열심남의 부산 아파트 데이터랩")
 st.caption("실거래와 단지정보를 결합한 탐색 도구입니다. 투자 추천 또는 매수 신호가 아닙니다.")
 render_update_status()
 menu = render_sidebar_navigation()
+if menu == "아파트 시가총액":
+    from src.market_cap_display import render_market_cap
+    render_market_cap()
+    st.stop()
 school_manifest_path = ROOT / SNAPSHOT_DIR / "manifest.json"
 school_snapshot_version = school_manifest_path.stat().st_mtime_ns if school_manifest_path.is_file() else 0
 try:

@@ -1,0 +1,30 @@
+{
+  "run_id": "5c1d41511aefad8666ac05f4",
+  "input_hash": "2c7b104759735dae0ba31f9c88c7dfa01f358ebed6e635570494947f8fd1bda8",
+  "rules_hash": "7613e4cd73989ef7af1530d5148fe737bc70e3da706003eb04d9e09acd0cc05f",
+  "release": "area_master_20260918",
+  "executed_at": "2026-09-18T13:47:17.808549+09:00",
+  "price_source": "kb_sale_general",
+  "price_unit_original": "만원",
+  "price_unit": "원",
+  "collection_start": "2026-09-18T10:29:14.811203",
+  "collection_end": "2026-09-18T11:20:47.633966",
+  "missing_price_dates": 3308,
+  "master_types": 3308,
+  "transaction_area_groups": 2968,
+  "master_complexes": 497,
+  "targets": 560,
+  "complete": 360,
+  "price_issues": {
+    "": 2476,
+    "KB 일반매매가 미확보": 566,
+    "KB 타입 연결 미확인": 266
+  },
+  "source_files": {
+    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\data\\releases\\area_master_20260918\\market_cap_area_master.csv": "6cbbb444dfe5e49fc411b8f9d7c556b31a2216e9409303a202e02d50d9f8871b",
+    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\data\\raw\\kb\\kb_area_types.csv": "79eb28c0531db4567e4fe67200daf33b8be6ab2ab78b8d4742c9de4a5b17f15a",
+    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\data\\releases\\area_master_20260918\\area_master_complex_status.csv": "8a32a795fa195574b58d6159ea42f72bb2d27216a4c877d7ec5671fbe73656de",
+    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\data\\qa\\phase4_mixed_complex_audit.csv": "18f0b4366950c3895e3928bfcd3d81204e723519525ee4e87d69999246fb07a7",
+    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\data\\releases\\area_master_20260918\\RELEASE_INFO.json": "1b6ae39eda223501c880d3c40d57ac1a374bf26727ec5019c1aef5c01fa1dcf0"
+  }
+}

@@ -99,7 +99,7 @@ def _canonical_frame(raw: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(canonical, index=raw.index)
 
 
-def clean_trade(raw: pd.DataFrame, *, provisional_months: int = 2, exclude_cancelled: bool = True) -> pd.DataFrame:
+def clean_trade(raw: pd.DataFrame, *, provisional_months: int = 2, exclude_cancelled: bool = True, preserve_rows: bool = False) -> pd.DataFrame:
     if raw.empty:
         return pd.DataFrame()
     out = _canonical_frame(raw)
@@ -161,7 +161,14 @@ def clean_trade(raw: pd.DataFrame, *, provisional_months: int = 2, exclude_cance
     duplicate_key = [
         "lawd_cd", "dong", "jibun", "complex_name_normalized", "area_sqm", "floor", "deal_date", "deal_amount_krw"
     ]
-    out = out.drop_duplicates(subset=duplicate_key, keep="last")
+    if preserve_rows:
+        # Batch valuations preserve distinct source occurrences, even at identical
+        # date/floor/area/price. Existing analysis keeps its historical policy.
+        for column in ("source_row_id", "dealingGbn", "aptDong", "aptSeq"):
+            if column in raw:
+                out[column] = raw[column]
+    else:
+        out = out.drop_duplicates(subset=duplicate_key, keep="last")
     if exclude_cancelled:
         out = out.loc[~out["is_cancelled"]].copy()
     return out.reset_index(drop=True)

@@ -1,5 +1,7 @@
 # Python
 __pycache__/
+.market_cap_*tests*/
+.market_cap_pytest/
 *.py[cod]
 
 # Virtual environment
@@ -37,6 +39,12 @@ data/processed/**/*
 !data/processed/recovery_watchlist.csv
 !data/processed/old_apartment_watchlist.csv
 !data/processed/data_update_status.json
+!data/processed/market_cap/
+!data/processed/market_cap/**/
+!data/processed/market_cap/**/*.parquet
+!data/processed/market_cap/**/*.json
+!data/processed/market_cap/*.csv
+!data/processed/market_cap/kb/*.csv
 !data/processed/schools/
 !data/processed/schools/school_map.parquet
 !data/processed/schools/elementary_history.parquet

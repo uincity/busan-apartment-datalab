@@ -10,6 +10,7 @@ NAVIGATION_GROUPS = [
             ("부산 Overview", ":material/dashboard:", "overview"),
             ("거래량 TOP 20", ":material/bar_chart:", "transaction_top"),
             ("아파트 TOP 20", ":material/leaderboard:", "apartment_top"),
+            ("아파트 시가총액", ":material/account_balance:", "market_cap"),
             ("실거래가 단지 검색", ":material/search:", "price_search"),
         ],
     ),

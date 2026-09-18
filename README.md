@@ -191,3 +191,22 @@ python main.py collect-trade --start 202607 --end 202609 --force
 python main.py collect-rent --start 202607 --end 202609 --force
 
 python main.py build --incremental
+
+## 아파트 시가총액 메뉴
+
+KB 평형별 세대수·일반매매가로 계산한 **수집일 기준 시가총액**을 기본으로 표시합니다.
+`가격 기준`에서 기존 **실거래 월별 추정**으로 전환할 수 있습니다.
+2026-09-18 배포본의 497개 단지·3,308개 타입을 반영했으며, KB 가격과 세대수가 모두 확인된 360개 단지를 산정했습니다.
+KB 시세 기준일이 없어 수집일을 표시하며, 누락 가격과 불일치 세대수는 보완 목록에 남깁니다.
+
+```powershell
+# 인접 area_master의 최신 배포본 + KB 수집 가격 반영
+.venv\Scripts\python.exe -m src.market_cap_kb
+# 새 평형 세대수로 최근 종료 월의 실거래 추정치 갱신
+.venv\Scripts\python.exe -m src.market_cap_batch --reason "KB 평형별 세대수 반영"
+# 필요 시 과거 월 전체 재구성 (현재 평형 구성 사용)
+.venv\Scripts\python.exe -m src.market_cap_batch --backfill --reason "평형 마스터 보완 후 과거 재구성"
+```
+
+CSV 입력 형식, 최초/수정 이력, 월간 운영, 자료 한계와 검증 결과는
+[시가총액 구현·운영 보고서](reports/MARKET_CAP_IMPLEMENTATION.md)를 참고하세요.

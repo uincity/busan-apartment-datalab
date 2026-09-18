@@ -1,0 +1,9 @@
+{
+  "version": "trade-median-v1",
+  "minimum_households": 500,
+  "minimum_transactions": 3,
+  "windows": [3, 6, 12],
+  "area_tolerance_sqm": 0.0,
+  "default_grades": ["A", "B"],
+  "price_source": "transaction_median"
+}

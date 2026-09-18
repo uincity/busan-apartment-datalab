@@ -6,6 +6,7 @@ def test_sidebar_navigation_preserves_existing_route_values():
         "부산 Overview",
         "거래량 TOP 20",
         "아파트 TOP 20",
+        "아파트 시가총액",
         "실거래가 단지 검색",
         "구군 비교",
         "동 비교",

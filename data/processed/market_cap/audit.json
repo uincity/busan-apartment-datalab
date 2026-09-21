@@ -1,9 +1,9 @@
 {
   "raw_rows": 250438,
   "cancelled_rows": 16262,
-  "unverified_mapping_rows": 43179,
-  "eligible_rows": 193849,
-  "same_terms_rows_preserved": 1522,
+  "unverified_mapping_rows": 43054,
+  "eligible_rows": 193966,
+  "same_terms_rows_preserved": 1524,
   "period_start": "2020-01-01",
   "period_end": "2026-09-16",
   "raw_months": [
@@ -95,14 +95,14 @@
   "latest_month": "2026-08",
   "targets": 560,
   "grades": {
-    "산정 불완전": 440,
-    "D": 58,
-    "C": 28,
-    "B": 18,
-    "A": 16
+    "산정 불완전": 279,
+    "D": 133,
+    "C": 84,
+    "B": 35,
+    "A": 29
   },
-  "master_rows": 2968,
-  "confirmed_households": 505871,
+  "master_rows": 3074,
+  "confirmed_households": 528881,
   "total_households": 592879,
   "new_snapshots": 1,
   "snapshot_months": 80

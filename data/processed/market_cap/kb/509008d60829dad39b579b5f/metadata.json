@@ -1,0 +1,335 @@
+{
+  "run_id": "509008d60829dad39b579b5f",
+  "input_hash": "f7d085394033969050c1ae1009c3fcc7eebd731056ff3c2805236d830dc35840",
+  "rules_hash": "e6a78e9a28de546e7ef9a17a31ba99e811603dc7aeb59eb257188f8476bf3557",
+  "release": "area_master_20260918",
+  "executed_at": "2026-09-21T13:48:56.377555+09:00",
+  "price_source": "kb_sale_general",
+  "price_unit_original": "만원",
+  "price_unit": "원",
+  "collection_start": "2026-09-18T10:29:14.811203",
+  "collection_end": "2026-09-21T13:30:00.000000",
+  "missing_price_dates": 3255,
+  "master_types": 3435,
+  "transaction_area_groups": 3074,
+  "master_complexes": 511,
+  "targets": 560,
+  "complete": 385,
+  "adjusted_complete": 419,
+  "adjustment_policy": {
+    "version": "nearest-exclusive-area-v1",
+    "method": "nearest_exclusive_area_unit_price",
+    "source": "사용자 요청: 평형별 세대수 보완 완료 기준 면적 단가 보정",
+    "complexes": {
+      "A10022847": {
+        "households": 1384,
+        "scope": "전체 주거 세대 (사용자 확인 기준)"
+      },
+      "A10023607": {
+        "households": 975,
+        "scope": "전체 주거 세대 (사용자 확인 기준, 분양·임대 구분 없이 평가)"
+      },
+      "A10023975": {
+        "households": 3853,
+        "scope": "전체 주거 세대 (사용자 승인 기준, 임대 포함 정밀 단가 보정)"
+      },
+      "A10022890": {
+        "households": 4470,
+        "scope": "전체 주거 세대 (사용자 승인 기준, 임대 포함 정밀 단가 보정)"
+      },
+      "A10025075": {
+        "households": 1038,
+        "scope": "전체 주거 세대 (사용자 승인 기준, 미시세 펜트하우스 보정)"
+      },
+      "A60809004": {
+        "households": 7374,
+        "scope": "전체 주거 세대 (사용자 승인 기준, 1~5차 전체)"
+      },
+      "A10027832": {
+        "households": 3160,
+        "scope": "전체 분양 세대 (임대 630세대 제외 3,160세대 전수 산정)"
+      },
+      "A60701004": {
+        "households": 1285,
+        "scope": "전체 주거 세대 (1단지+2단지 통합 산정)"
+      },
+      "A61202009": {
+        "households": 1008,
+        "scope": "전체 주거 세대 (1단지+2단지 통합 산정)"
+      },
+      "A10026557": {
+        "households": 753,
+        "scope": "전체 주거 세대 (1단지+2단지 통합 산정)"
+      },
+      "A61673902": {
+        "households": 538,
+        "scope": "전체 주거 세대 (1단지+2단지 통합 산정)"
+      },
+      "A61175209": {
+        "households": 1452,
+        "scope": "전체 주거 세대 (1~5차 통합 산정)"
+      },
+      "A60608303": {
+        "households": 2088,
+        "scope": "전체 분양 세대 (임대분리형 단지)"
+      },
+      "A61409004": {
+        "households": 566,
+        "scope": "전체 주거 세대 (아파트 566세대 산정)"
+      },
+      "A60976502": {
+        "households": 735,
+        "scope": "전체 분양 세대 (임대 150세대 제외 735세대 산정)"
+      },
+      "A61776303": {
+        "households": 1962,
+        "scope": "전체 분양 세대 (1,962세대 산정)"
+      },
+      "A10025258": {
+        "households": 352,
+        "scope": "전체 주거 세대 (352세대 평형 산정)"
+      },
+      "A10025154": {
+        "households": 699,
+        "scope": "공공임대 분양전환 단지"
+      },
+      "A60802001": {
+        "households": 2304,
+        "scope": "전체 주거 세대 (아파트 2,100세대 + 주상복합 204세대 전체 2,304세대 전수 산정)"
+      },
+      "A61310007": {
+        "households": 928,
+        "scope": "전체 주거 세대 (펜트하우스 4세대 포함 928세대 전수 산정)"
+      },
+      "A61377106": {
+        "households": 920,
+        "scope": "분양 920세대 전수 산정 (임대 86세대 제외)"
+      },
+      "A10023616": {
+        "households": 2404,
+        "scope": "분양 2,404세대 전수 산정 (임대 212세대 제외)"
+      },
+      "A10022844": {
+        "households": 2079,
+        "scope": "분양 2,079세대 전수 산정 (임대 116세대 제외)"
+      },
+      "A10023526": {
+        "households": 1224,
+        "scope": "분양 1,224세대 전수 산정 (임대 427세대 제외)"
+      },
+      "A10023040": {
+        "households": 1168,
+        "scope": "분양 1,168세대 전수 산정 (임대 170세대 제외)"
+      },
+      "A10027054": {
+        "households": 978,
+        "scope": "분양 978세대 전수 산정 (임대 86세대 제외)"
+      },
+      "A10026484": {
+        "households": 743,
+        "scope": "분양 743세대 전수 산정 (임대 70세대 제외)"
+      },
+      "A61288603": {
+        "households": 681,
+        "scope": "분양 681세대 전수 산정 (임대 66세대 제외)"
+      },
+      "A10022999": {
+        "households": 998,
+        "scope": "분양 998세대 전수 산정 (임대 59세대 제외)"
+      },
+      "A10023104": {
+        "households": 1434,
+        "scope": "분양 1,434세대 전수 산정 (임대 138세대 제외)"
+      },
+      "A10026034": {
+        "households": 876,
+        "scope": "분양 876세대 전수 산정 (임대 83세대 제외)"
+      },
+      "A10023571": {
+        "households": 948,
+        "scope": "분양 948세대 전수 산정 (임대 50세대 제외)"
+      },
+      "A10024953": {
+        "households": 1053,
+        "scope": "분양 1,053세대 전수 산정 (임대 60세대 제외)"
+      },
+      "A10024341": {
+        "households": 871,
+        "scope": "분양 871세대 전수 산정 (임대 15세대 제외)"
+      },
+      "A10024303": {
+        "households": 1061,
+        "scope": "분양 1,061세대 전수 산정 (임대 155세대 제외)"
+      },
+      "A61478901": {
+        "households": 925,
+        "scope": "분양 925세대 전수 산정 (임대 86세대 제외)"
+      },
+      "A10024535": {
+        "households": 783,
+        "scope": "분양 783세대 전수 산정 (임대 32세대 제외)"
+      },
+      "A10027790": {
+        "households": 732,
+        "scope": "분양 732세대 전수 산정 (임대 68세대 제외)"
+      },
+      "A61202011": {
+        "households": 516,
+        "scope": "분양 516세대 전수 산정 (임대 65세대 제외)"
+      },
+      "A10022574": {
+        "households": 716,
+        "scope": "분양 716세대 전수 산정 (임대 40세대 제외)"
+      },
+      "A10023704": {
+        "households": 629,
+        "scope": "분양 629세대 전수 산정 (임대 104세대 제외)"
+      },
+      "A10023969": {
+        "households": 793,
+        "scope": "분양 793세대 전수 산정 (임대 42세대 제외)"
+      },
+      "A10028182": {
+        "households": 673,
+        "scope": "분양 673세대 전수 산정 (임대 80세대 제외)"
+      },
+      "A10027989": {
+        "households": 717,
+        "scope": "분양 717세대 전수 산정 (임대 75세대 제외)"
+      },
+      "A60471810": {
+        "households": 494,
+        "scope": "분양 494세대 전수 산정 (임대 48세대 제외)"
+      },
+      "A10027159": {
+        "households": 475,
+        "scope": "분양 475세대 전수 산정 (임대 46세대 제외)"
+      },
+      "A10024875": {
+        "households": 524,
+        "scope": "분양 524세대 전수 산정 (임대 30세대 제외)"
+      },
+      "A10026184": {
+        "households": 1422,
+        "scope": "전체 주거 세대 (1,422세대 전수 산정)"
+      },
+      "A10025593": {
+        "households": 965,
+        "scope": "전체 주거 세대 (965세대 전수 산정)"
+      },
+      "A10025687": {
+        "households": 671,
+        "scope": "전체 주거 세대 (671세대 전수 산정)"
+      },
+      "A10024919": {
+        "households": 701,
+        "scope": "전체 주거 세대 (701세대 전수 산정)"
+      },
+      "A61870405": {
+        "households": 1102,
+        "scope": "전체 주거 세대 (1,102세대 전수 산정)"
+      },
+      "A10025042": {
+        "households": 913,
+        "scope": "전체 주거 세대 (913세대 전수 산정)"
+      },
+      "A61881402": {
+        "households": 1124,
+        "scope": "전체 주거 세대 (1,124세대 전수 산정)"
+      },
+      "A60783306": {
+        "households": 648,
+        "scope": "전체 주거 세대 (648세대 전수 산정)"
+      },
+      "A61205002": {
+        "households": 703,
+        "scope": "전체 주거 세대 (703세대 전수 산정)"
+      },
+      "A60874408": {
+        "households": 678,
+        "scope": "전체 주거 세대 (678세대 전수 산정)"
+      },
+      "A10023837": {
+        "households": 846,
+        "scope": "전체 주거 세대 (846세대 전수 산정)"
+      },
+      "A10027325": {
+        "households": 532,
+        "scope": "전체 주거 세대 (532세대 전수 산정)"
+      },
+      "A60106002": {
+        "households": 690,
+        "scope": "전체 주거 세대 (690세대 전수 산정)"
+      },
+      "A10023647": {
+        "households": 638,
+        "scope": "전체 주거 세대 (638세대 전수 산정)"
+      },
+      "A10024226": {
+        "households": 610,
+        "scope": "전체 주거 세대 (610세대 전수 산정)"
+      },
+      "A10027306": {
+        "households": 1068,
+        "scope": "전체 주거 세대 (1,068세대 전수 산정)"
+      },
+      "A61203015": {
+        "households": 662,
+        "scope": "전체 주거 세대 (662세대 전수 산정)"
+      },
+      "A10026651": {
+        "households": 946,
+        "scope": "전체 주거 세대 (946세대 전수 산정)"
+      },
+      "A10026975": {
+        "households": 839,
+        "scope": "전체 주거 세대 (839세대 전수 산정)"
+      },
+      "A61870406": {
+        "households": 652,
+        "scope": "전체 주거 세대 (652세대 전수 산정)"
+      },
+      "A61990108": {
+        "households": 620,
+        "scope": "전체 주거 세대 (620세대 전수 산정)"
+      },
+      "A61684110": {
+        "households": 722,
+        "scope": "전체 주거 세대 (722세대 전수 산정)"
+      },
+      "A61777903": {
+        "households": 517,
+        "scope": "전체 주거 세대 (517세대 전수 산정)"
+      },
+      "A61970210": {
+        "households": 524,
+        "scope": "전체 주거 세대 (524세대 전수 산정)"
+      },
+      "A61404203": {
+        "households": 751,
+        "scope": "전체 주거 세대 (751세대 전수 산정)"
+      },
+      "A61477403": {
+        "households": 633,
+        "scope": "전체 주거 세대 (633세대 전수 산정)"
+      },
+      "A61477302": {
+        "households": 512,
+        "scope": "전체 주거 세대 (512세대 전수 산정)"
+      }
+    }
+  },
+  "price_issues": {
+    "": 2638,
+    "KB 일반매매가 미확보": 584,
+    "KB 타입 연결 미확인": 213
+  },
+  "source_files": {
+    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\data\\releases\\area_master_20260918\\market_cap_area_master.csv": "37d95c12fa3a7e4a3d299ad3e4af9b69f8a3b1bc0eaf3b225fdd13a8c3737cac",
+    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\data\\raw\\kb\\kb_area_types.csv": "30d52a55479e22465d357d58092e45b04efe59339439261614db6bc600c4112b",
+    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\data\\releases\\area_master_20260918\\area_master_complex_status.csv": "2fbe1976f11439fd7814bf0e17f31d97827706a6ce15891e66224784bd162a65",
+    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\data\\qa\\phase4_mixed_complex_audit.csv": "7a262c0805c603178cc79360577913f41c8bcd38b4d7138cdb777bba8e4351e1",
+    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\data\\releases\\area_master_20260918\\RELEASE_INFO.json": "1b6ae39eda223501c880d3c40d57ac1a374bf26727ec5019c1aef5c01fa1dcf0",
+    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\busan_apartment_analysis\\config\\market_cap_kb_adjustments.json": "79f445646ee1751ab91878b82c003076bec81663a52fb4926c7bed4f0675461b"
+  }
+}

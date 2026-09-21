@@ -143,6 +143,8 @@ def estimate_month(complexes: pd.DataFrame, master: pd.DataFrame, trades: pd.Dat
     empty = trades.iloc[0:0]
     detail, totals = [], []
     end = pd.Period(month, "M").end_time
+    approved_codes = set(rules.get("approved_multi_complexes", []))
+    minimum_extrapolation_coverage = float(rules.get("minimum_extrapolation_coverage", 1.0))
     for _, c in complexes.iterrows():
         rows = groups.get(c.kapt_code, active.iloc[0:0])
         reasons = []
@@ -161,11 +163,13 @@ def estimate_month(complexes: pd.DataFrame, master: pd.DataFrame, trades: pd.Dat
             reasons.append("평형 세대수 미검증")
         if not rows.empty and not rows.scope.eq("sale_apartment").all():
             reasons.append("임대·분양 범위 확인 필요")
+        is_adjusted = c.kapt_code in approved_codes
+
         # Conservative first release: mixed/rental stock needs a separate eligible denominator.
-        if c.get("sale_type", "unknown") != "분양":
-            reasons.append("임대·혼합 또는 분양 범위 미확인")
+        if c.get("sale_type", "unknown") != "분양" and not is_adjusted:
+            reasons.append("임대·혼합단지 분양 세대수 미확인")
         if c.get("building_type", "unknown") not in ("아파트", "주상복합"):
-            reasons.append("아파트 주거 범위 미확인")
+            reasons.append("아파트 주거용 미확인")
         valid_rows = rows.loc[rows.verification_status.eq("verified") & rows.scope.eq("sale_apartment")]
         if c.kapt_code in bad_codes:
             valid_rows = rows.iloc[0:0]
@@ -183,8 +187,29 @@ def estimate_month(complexes: pd.DataFrame, master: pd.DataFrame, trades: pd.Dat
         priced = [r for r in local if pd.notna(r["price_krw"])]
         confirmed = sum(r["households"] for r in local)
         priced_count = sum(r["households"] for r in priced)
+
+        # Officially approved multi-complexes may extrapolate a small unpriced remainder.
+        price_coverage = priced_count / confirmed if confirmed else 0
+        if (is_adjusted and priced_count < confirmed and priced_count > 0
+                and price_coverage >= minimum_extrapolation_coverage):
+            priced_df = pd.DataFrame(priced)
+            priced_df["unit_price"] = priced_df["price_krw"] / priced_df["exclusive_area_sqm"]
+            for r in local:
+                if pd.isna(r["price_krw"]):
+                    diffs = np.abs(priced_df["exclusive_area_sqm"] - r["exclusive_area_sqm"])
+                    nearest_idx = diffs.idxmin()
+                    nearest_unit = priced_df.loc[nearest_idx, "unit_price"]
+                    est_price = round(nearest_unit * r["exclusive_area_sqm"], 0)
+                    r["price_krw"] = est_price
+                    r["contribution_krw"] = r["households"] * est_price
+                    r["method"] = "nearest_exclusive_area_unit_price"
+                    r["window_months"] = 12
+                    r["small_sample"] = True
+            priced = [r for r in local if pd.notna(r["price_krw"])]
+            priced_count = sum(r["households"] for r in priced)
+
         if priced_count < confirmed:
-            reasons.append("가격 부족 또는 면적 연결 미확인")
+            reasons.append("일부 평형 시세 미확보")
         complete = not reasons and priced_count == c.households
         grade = "산정 불완전"
         if complete:

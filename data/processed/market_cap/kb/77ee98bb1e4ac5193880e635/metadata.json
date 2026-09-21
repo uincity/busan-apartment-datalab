@@ -1,0 +1,63 @@
+{
+  "run_id": "77ee98bb1e4ac5193880e635",
+  "input_hash": "f97087e2c169b0e85be7ff7f28959ecbaf7a0547048d3f90005ff027b5a91fd9",
+  "rules_hash": "e6a78e9a28de546e7ef9a17a31ba99e811603dc7aeb59eb257188f8476bf3557",
+  "release": "area_master_20260918",
+  "executed_at": "2026-09-21T10:17:36.169057+09:00",
+  "price_source": "kb_sale_general",
+  "price_unit_original": "만원",
+  "price_unit": "원",
+  "collection_start": "2026-09-18T10:29:14.811203",
+  "collection_end": "2026-09-18T11:20:47.633966",
+  "missing_price_dates": 3278,
+  "master_types": 3343,
+  "transaction_area_groups": 2998,
+  "master_complexes": 499,
+  "targets": 560,
+  "complete": 361,
+  "adjusted_complete": 366,
+  "adjustment_policy": {
+    "version": "nearest-exclusive-area-v1",
+    "method": "nearest_exclusive_area_unit_price",
+    "source": "사용자 요청: 평형별 세대수 보완 완료 기준 면적 단가 보정",
+    "complexes": {
+      "A10022847": {
+        "households": 1384,
+        "scope": "전체 주거 세대 (사용자 확인 기준)"
+      },
+      "A10023607": {
+        "households": 975,
+        "scope": "전체 주거 세대 (사용자 확인 기준, 분양·임대 구분 없이 평가)"
+      },
+      "A10023975": {
+        "households": 3853,
+        "scope": "전체 주거 세대 (사용자 승인 기준, 임대 포함 정밀 단가 보정)"
+      },
+      "A10022890": {
+        "households": 4470,
+        "scope": "전체 주거 세대 (사용자 승인 기준, 임대 포함 정밀 단가 보정)"
+      },
+      "A10025075": {
+        "households": 1038,
+        "scope": "전체 주거 세대 (사용자 승인 기준, 미시세 펜트하우스 보정)"
+      },
+      "A60809004": {
+        "households": 7374,
+        "scope": "전체 주거 세대 (사용자 승인 기준, 1~5차 전체)"
+      }
+    }
+  },
+  "price_issues": {
+    "": 2534,
+    "KB 일반매매가 미확보": 573,
+    "KB 타입 연결 미확인": 236
+  },
+  "source_files": {
+    "..\\area_master\\data\\releases\\area_master_20260918\\market_cap_area_master.csv": "9330e5f176fb84c8305d51bfadcb1b764a41fb69e54c440acfd971f0d23cbb1e",
+    "..\\area_master\\data\\raw\\kb\\kb_area_types.csv": "8cce1ed2663360659d4e7b619cf6e20aadf7d6304ea6a60b9c52e2121291d331",
+    "..\\area_master\\data\\releases\\area_master_20260918\\area_master_complex_status.csv": "8d5c44ff1ed164bee492b8535c2cb082f9cc4d77bfc29aa442e2e606d428f94c",
+    "..\\area_master\\data\\qa\\phase4_mixed_complex_audit.csv": "ce90638139653ef43aade511729c5169212e84609a0814fbddb9396eca5d00c1",
+    "..\\area_master\\data\\releases\\area_master_20260918\\RELEASE_INFO.json": "1b6ae39eda223501c880d3c40d57ac1a374bf26727ec5019c1aef5c01fa1dcf0",
+    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\busan_apartment_analysis\\config\\market_cap_kb_adjustments.json": "aa423d087d7a5e3c1cae14a37a11ed3ababaa5b81c762f2ac86b47648b971177"
+  }
+}

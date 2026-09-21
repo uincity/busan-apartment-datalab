@@ -28,7 +28,7 @@ def test_build_watch_table_data_preserves_raw_sort_values_and_complex_id():
     assert rows[0]["complex_name"] == "두번째"
     assert rows[0]["column_2"] == "1,000세대"
     assert rows[0]["column_2_sort"] == 1000.0
-    assert rows[0]["column_3"] == "12.50억"
+    assert rows[0]["column_3"] == "12.5억"
     assert rows[0]["column_4"] == "2001-02-03"
     assert columns[2] == {
         "key": "column_2",

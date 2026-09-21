@@ -10,6 +10,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from .overview_map import COLOR_MODE_COLUMNS, SIZE_MODE_COLUMNS, format_krw, format_percent, scale_marker_size
 from .school_display import label_score
 
 
@@ -194,7 +195,7 @@ def transaction_volume_bar(
         lambda value: f"{value:,.0f}세대" if pd.notna(value) else "정보 없음"
     )
     work["rate_hover"] = work["transaction_rate"].map(
-        lambda value: f"{value:.2f}%" if pd.notna(value) else "계산 불가"
+        lambda value: f"{value:.1f}%" if pd.notna(value) else "계산 불가"
     )
     # Plotly의 가로 막대 Y축은 categoryarray 첫 항목이 아래에 놓이므로,
     # 1위부터 배열한 뒤 축을 뒤집어 거래량 1위가 화면 맨 위에 오게 한다.
@@ -270,7 +271,7 @@ def transaction_volume_bar(
                 f"기간: {period_label or '선택 기간'}<br><br>"
                 "거래건수: %{customdata[5]:,.0f}건<br>"
                 "세대수: %{customdata[8]}<br>"
-                "거래비율: %{x:.2f}%<extra></extra>"
+                "거래비율: %{x:.1f}%<extra></extra>"
             ),
             showlegend=False,
             name="거래비율",
@@ -582,7 +583,7 @@ def complex_map(df: pd.DataFrame, focus_complex_id: str = DEFAULT_MAP_FOCUS_ID) 
     if "approval_year" in work:
         hover_data["approval_year"] = True
     hover_data.update({
-        "average_transaction_price_eok": ":.2f",
+        "average_transaction_price_eok": ":.1f",
         MAP_PRICE_BAND_COLUMN: True,
         "map_transaction_count": ":,.0f",
     })
@@ -675,7 +676,7 @@ def complex_map(df: pd.DataFrame, focus_complex_id: str = DEFAULT_MAP_FOCUS_ID) 
         if not focus_price.isna().all():
             focus_hovertemplate = (
                 "[기준 단지]<br><b>%{text}</b><br>%{customdata[1]} · %{customdata[2]}<br>"
-                "평균 실거래가: %{customdata[3]:.2f}억원<br>가격 구간: %{customdata[4]}<br>"
+                "평균 실거래가: %{customdata[3]:.1f}억원<br>가격 구간: %{customdata[4]}<br>"
                 "세대수: %{customdata[5]:,.0f}세대<br>사용승인연도: %{customdata[6]}<br>"
                 "조회기간 거래: %{customdata[7]:,.0f}건<extra></extra>"
             )
@@ -743,7 +744,33 @@ def _hex_rgb(color: str, alpha: int = 215) -> list[int]:
     return [int(color[index:index + 2], 16) for index in (1, 3, 5)] + [alpha]
 
 
-def combined_pydeck_map(apartments: pd.DataFrame, schools: pd.DataFrame, focus_complex_id: str = DEFAULT_MAP_FOCUS_ID) -> pdk.Deck:
+def _gap_colors(values: pd.Series) -> pd.Series:
+    """격차를 0 중심의 청색-중립-적색 발산 색상으로 변환한다."""
+    numeric = pd.to_numeric(values, errors="coerce")
+    valid = numeric[numeric.map(lambda value: pd.notna(value) and math.isfinite(float(value)))]
+    colors = pd.Series([[203, 213, 225, 105] for _ in range(len(values))], index=values.index, dtype="object")
+    if valid.empty:
+        return colors
+    limit = float(valid.abs().quantile(0.98)) if len(valid) >= 10 else float(valid.abs().max())
+    limit = max(limit, 1e-12)
+    neutral = (226, 232, 240)
+    negative = (37, 99, 235)
+    positive = (225, 29, 72)
+    for index, value in valid.clip(lower=-limit, upper=limit).items():
+        ratio = min(abs(float(value)) / limit, 1.0)
+        endpoint = positive if value >= 0 else negative
+        rgb = [round(neutral[channel] + ratio * (endpoint[channel] - neutral[channel])) for channel in range(3)]
+        colors.at[index] = rgb + [220]
+    return colors
+
+
+def combined_pydeck_map(
+    apartments: pd.DataFrame,
+    schools: pd.DataFrame,
+    focus_complex_id: str = DEFAULT_MAP_FOCUS_ID,
+    marker_size_mode: str = "세대수",
+    marker_color_mode: str = "가격",
+) -> pdk.Deck:
     """아파트 점과 자체 포함 학교 SVG를 한 WebGL 지도에 렌더링한다."""
     layers: list[pdk.Layer] = []
     center_frames: list[pd.DataFrame] = []
@@ -751,25 +778,51 @@ def combined_pydeck_map(apartments: pd.DataFrame, schools: pd.DataFrame, focus_c
         work = apartments.dropna(subset=["latitude", "longitude"]).copy()
         work["average_transaction_price_eok"] = pd.to_numeric(work.get(MAP_PRICE_COLUMN), errors="coerce") / 100_000_000
         work[MAP_PRICE_BAND_COLUMN] = classify_map_price_bands(work["average_transaction_price_eok"]).astype("object")
-        work["map_color"] = work[MAP_PRICE_BAND_COLUMN].map(MAP_PRICE_COLORS).fillna("#CBD5E1").map(_hex_rgb)
-        households = pd.to_numeric(work["households"], errors="coerce").fillna(0).clip(lower=0)
-        maximum = max(float(households.max()), 1.0)
-        work["map_radius_px"] = 5.0 + 15.0 * (households / maximum).pow(0.5)
+        color_column = COLOR_MODE_COLUMNS.get(marker_color_mode, MAP_PRICE_COLUMN)
+        if marker_color_mode == "가격" or color_column not in work:
+            work["map_color"] = work[MAP_PRICE_BAND_COLUMN].map(MAP_PRICE_COLORS).fillna("#CBD5E1").map(_hex_rgb)
+        else:
+            work["map_color"] = _gap_colors(work[color_column])
+        households = pd.to_numeric(work.get("households"), errors="coerce")
+        size_column = SIZE_MODE_COLUMNS.get(marker_size_mode, "households")
+        size_values = work.get(size_column, pd.Series(float("nan"), index=work.index))
+        work["map_radius_px"] = scale_marker_size(size_values)
         work["entity_type"] = "apartment"
         work["entity_id"] = work["internal_complex_id"].astype(str)
         work["display_name"] = work["complex_name"].astype(str)
         work["detail_line"] = work["sigungu"].astype(str) + " · " + work["dong"].astype(str)
-        work["metric_line"] = "세대수 " + households.map(lambda value: f"{value:,.0f}")
+        work["households_display"] = households.map(
+            lambda value: "-" if pd.isna(value) else f"{float(value):,.0f}세대"
+        )
+        transaction_counts = pd.to_numeric(
+            work.get("transaction_count_12m", pd.Series(float("nan"), index=work.index)), errors="coerce"
+        )
+        work["transaction_count_display"] = transaction_counts.map(
+            lambda value: "-" if pd.isna(value) else f"{float(value):,.0f}건"
+        )
+        show_local_gap = "local_value_gap_pct" in work and work["local_value_gap_pct"].notna().any()
+        work["metric_line"] = work.apply(
+            lambda row: (
+                f"대표 실거래가 {format_krw(row.get(MAP_PRICE_COLUMN))}<br>"
+                f"세대수 {row['households_display']}<br>"
+                f"시가총액 {format_krw(row.get('market_cap_krw'))}<br>"
+                f"최근 12개월 거래 {row['transaction_count_display']}"
+                f" · {format_krw(row.get('transaction_value_12m'))}<br>"
+                + (f"Local Value Gap {format_percent(row.get('local_value_gap_pct'))}<br>" if show_local_gap else "")
+                + f"School Value Gap {format_percent(row.get('school_value_gap_pct'))}"
+            ),
+            axis=1,
+        )
         focus = work["entity_id"].eq(str(focus_complex_id))
         if focus.any():
             work.loc[focus, "map_color"] = pd.Series(
                 [_hex_rgb(MAP_FOCUS_COLOR, 255)] * int(focus.sum()), index=work.index[focus], dtype="object"
             )
-        work.loc[focus, "map_radius_px"] = 22.0
+        work.loc[focus, "map_radius_px"] = work.loc[focus, "map_radius_px"].clip(lower=22.0)
         layers.append(pdk.Layer(
             "ScatterplotLayer", work, id="apartments", get_position="[longitude, latitude]",
             get_fill_color="map_color", get_radius="map_radius_px", radius_units=String("pixels"),
-            radius_min_pixels=5, radius_max_pixels=22, stroked=True, get_line_color=[255, 255, 255, 230],
+            radius_min_pixels=5, radius_max_pixels=26, stroked=True, get_line_color=[255, 255, 255, 230],
             line_width_min_pixels=1, pickable=True, auto_highlight=True,
         ))
         center_frames.append(work[["latitude", "longitude"]])

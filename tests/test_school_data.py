@@ -90,9 +90,9 @@ def test_school_scale_does_not_change_apartment_marker_radius():
     })
     deck = combined_pydeck_map(apartments, pd.DataFrame(), focus_complex_id="missing")
     layer = next(layer for layer in deck.layers if layer.id == "apartments")
-    assert [row["map_radius_px"] for row in layer.data] == [12.5, 20.0]
+    assert [row["map_radius_px"] for row in layer.data] == [5.0, 26.0]
     assert layer.radius_min_pixels == 5
-    assert layer.radius_max_pixels == 22
+    assert layer.radius_max_pixels == 26
 
 
 def test_school_detail_display_views_are_korean_and_keep_units():

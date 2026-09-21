@@ -85,7 +85,7 @@ WATCH_PERCENT_COLUMNS = {
     "저점 대비 회복률",
     "동 평균 대비 할인율",
 }
-WATCH_TWO_DECIMAL_SUFFIXES = {
+WATCH_ONE_DECIMAL_SUFFIXES = {
     "세대당 주차대수": "대",
     "84㎡ 기준가격(억원)": "억",
     "84㎡ 누적 고점(억원)": "억",
@@ -169,8 +169,8 @@ def _format_watch_value(label: str, value: object) -> str:
         return f"{float(value):,.0f}{WATCH_INTEGER_SUFFIXES[label]}"
     if label in WATCH_PERCENT_COLUMNS:
         return f"{float(value):.1%}"
-    if label in WATCH_TWO_DECIMAL_SUFFIXES:
-        return f"{float(value):,.2f}{WATCH_TWO_DECIMAL_SUFFIXES[label]}"
+    if label in WATCH_ONE_DECIMAL_SUFFIXES:
+        return f"{float(value):,.1f}{WATCH_ONE_DECIMAL_SUFFIXES[label]}"
     if label == "84㎡ 평당가격(만원)":
         return f"{float(value):,.0f}만원"
     if label in {"위도", "경도"}:

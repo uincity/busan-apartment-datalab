@@ -18,6 +18,13 @@ from src.config import load_settings
 from src.dashboard_state import default_comparison_ids, selected_complex_id, selected_pydeck_entity
 from src.data_update_status import SUMMARY_PATH, load_dashboard_summary
 from src.double_click_table import double_click_table
+from src.overview_map import (
+    SIZE_MODE_COLUMNS,
+    build_overview_metrics,
+    format_krw,
+    load_overview_metric_sources,
+    size_legend_values,
+)
 from src.recent_price_search import build_recent_price_summary, filter_recent_price_summary
 from src.sidebar_navigation import render_sidebar_navigation
 from src.school_data import ELEMENTARY_HISTORY_FILE, MIDDLE_HISTORY_FILE, SNAPSHOT_DIR, load_school_snapshot, select_top_schools
@@ -205,6 +212,22 @@ def load_complexes() -> pd.DataFrame:
     return build_complex_summary(summary_source)
 
 
+@st.cache_data(show_spinner="Overview 지도 지표를 집계하고 있습니다...", max_entries=2)
+def load_overview_map_metrics(
+    complex_ids: tuple[str, ...],
+    trade_version: int,
+    market_cap_version: int,
+    school_value_version: int,
+) -> pd.DataFrame:
+    trades, market_caps, school_values = load_overview_metric_sources(
+        ROOT,
+        trade_version,
+        market_cap_version,
+        school_value_version,
+    )
+    return build_overview_metrics(pd.Series(complex_ids), trades, market_caps, school_values)
+
+
 @st.cache_resource(show_spinner=False)
 def load_rent_panel() -> pd.DataFrame:
     path = PROCESSED / "busan_apartment_rent_monthly.parquet"
@@ -263,25 +286,65 @@ def _status_month(value: str) -> str:
     return f"{period.year}년 {period.month:02d}월"
 
 
-def render_update_status() -> None:
-    st.subheader("실거래 데이터 현황")
+def current_update_status() -> tuple[dict | None, str | None]:
+    """메인 요약·상세·사이드바가 같은 캐시된 현황을 사용한다."""
     try:
         version = SUMMARY_PATH.stat().st_mtime_ns
-        summary = load_update_status(version)
-    except Exception:
-        st.warning("업데이트 현황 확인 불가")
-        st.caption("현황 파일이 없거나 손상되었습니다. 분석 화면은 사용 가능한 기존 데이터로 계속 표시됩니다.")
-        return
+        return load_update_status(version), None
+    except Exception as exc:
+        return None, str(exc)
 
-    columns = st.columns(2)
+
+def latest_update_time(summary: dict | None) -> str:
+    if not summary:
+        return "확인 불가"
+    timestamps = [
+        pd.Timestamp(item["latest_success_at"])
+        for item in (summary.get("trade", {}), summary.get("rent", {}))
+        if item.get("latest_success_at")
+    ]
+    return _status_time(str(max(timestamps))) if timestamps else "수집 시각 미기록"
+
+
+def render_sidebar_update(summary: dict | None) -> None:
+    with st.sidebar:
+        st.caption("데이터 업데이트")
+        st.caption(latest_update_time(summary))
+
+
+def render_compact_update_status(summary: dict | None, error: str | None = None) -> None:
+    if not summary:
+        st.caption("데이터 업데이트 현황 확인 불가")
+        with st.popover("ⓘ 데이터 현황"):
+            st.warning(f"현황 파일을 읽을 수 없습니다: {error or '자료 없음'}")
+        return
+    trade = summary["trade"]
+    rent = summary["rent"]
+    regions_ok = min(trade["successful_regions"], rent["successful_regions"])
+    regions_total = max(trade["target_regions"], rent["target_regions"])
+    with st.container(horizontal=True, vertical_alignment="center", gap="small"):
+        st.caption(
+            f"데이터 업데이트 {latest_update_time(summary)} · "
+            f"매매 {trade['reflected_count']:,}건 · 전월세 {rent['reflected_count']:,}건 · "
+            f"구·군 {regions_ok}/{regions_total}"
+        )
+        with st.popover("ⓘ 데이터 현황"):
+            render_update_status_detail(summary, compact=True)
+
+
+def render_update_status_detail(summary: dict, *, compact: bool = False) -> None:
+    if not compact:
+        st.subheader("실거래 데이터 현황")
+
     labels = {"trade": "매매", "rent": "전월세"}
+    columns = [st.container(), st.container()] if compact else st.columns(2)
     for column, kind in zip(columns, ("trade", "rent"), strict=True):
         item = summary[kind]
         partial = item["successful_regions"] < item["target_regions"]
         state = " · 일부 지역 반영" if partial else ""
-        with column.container(border=True):
+        with column.container(border=not compact):
             st.markdown(f"**{labels[kind]}**")
-            st.write(
+            st.caption(
                 f"수록 기간 {item['period_start'].replace('-', '.')}~{item['period_end'].replace('-', '.')}  |  "
                 f"{_status_month(item['latest_month'])} 반영 {item['reflected_count']:,}건{state}"
             )
@@ -318,6 +381,14 @@ def render_update_status() -> None:
         st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
         st.caption(f"대시보드 반영: {_status_time(summary.get('dashboard_applied_at'))} · 데이터 버전 {summary['data_version']}")
     st.caption("계약월 기준 자료입니다. 신고 지연 및 정정·취소 반영에 따라 최근 월과 과거 월의 건수가 변경될 수 있습니다.")
+
+
+def render_update_status(summary: dict | None, error: str | None = None) -> None:
+    if summary is None:
+        st.warning("업데이트 현황 확인 불가")
+        st.caption(f"현황 파일이 없거나 손상되었습니다: {error or '자료 없음'}. 분석 화면은 계속 사용할 수 있습니다.")
+        return
+    render_update_status_detail(summary)
 
 
 @st.cache_data(show_spinner=False, max_entries=4)
@@ -508,6 +579,7 @@ def filter_data(panel: pd.DataFrame, complexes: pd.DataFrame) -> tuple[pd.DataFr
         max_value=max_households,
         value=(DEFAULT_MIN_HOUSEHOLDS, max_households),
         step=100,
+        key="filter_household_range",
         help="초기 화면에는 500세대 이상 단지만 표시됩니다.",
     )
 
@@ -522,6 +594,7 @@ def filter_data(panel: pd.DataFrame, complexes: pd.DataFrame) -> tuple[pd.DataFr
         min_value=min_year,
         max_value=max_year,
         value=(default_min_year, max_year),
+        key="filter_approval_year_range",
         help="초기 화면에는 2001년 이후 사용승인 단지만 표시됩니다.",
     )
 
@@ -974,17 +1047,17 @@ def render_recent_price_search(trade_version: int, complex_version: int) -> None
                 "complex_name": str(row["complex_name"]),
                 "sigungu": str(row["sigungu"]),
                 "dong": str(row["dong"]),
-                "median_price": f"{float(row['중앙 실거래가(억원)']):,.2f}억",
+                "median_price": f"{float(row['중앙 실거래가(억원)']):,.1f}억",
                 "median_price_sort": float(row["중앙 실거래가(억원)"]),
                 "transaction_count": f"{int(row['transaction_count_1m']):,}건",
                 "transaction_count_sort": int(row["transaction_count_1m"]),
-                "min_price": f"{float(row['최저 거래가(억원)']):,.2f}억",
+                "min_price": f"{float(row['최저 거래가(억원)']):,.1f}억",
                 "min_price_sort": float(row["최저 거래가(억원)"]),
-                "max_price": f"{float(row['최고 거래가(억원)']):,.2f}억",
+                "max_price": f"{float(row['최고 거래가(억원)']):,.1f}억",
                 "max_price_sort": float(row["최고 거래가(억원)"]),
                 "households": f"{int(row['households']):,}세대",
                 "households_sort": int(row["households"]),
-                "parking": f"{float(row['parking_per_household']):,.2f}대",
+                "parking": f"{float(row['parking_per_household']):,.1f}대",
                 "parking_sort": float(row["parking_per_household"]),
                 "age": f"{int(row['apartment_age']):,}년",
                 "age_sort": int(row["apartment_age"]),
@@ -1018,8 +1091,17 @@ def render_recent_price_search(trade_version: int, complex_version: int) -> None
 
 st.title(":material/apartment: 열심남의 부산 아파트 데이터랩")
 st.caption("실거래와 단지정보를 결합한 탐색 도구입니다. 투자 추천 또는 매수 신호가 아닙니다.")
-render_update_status()
 menu = render_sidebar_navigation()
+update_summary, update_error = current_update_status()
+uses_global_filters = menu not in {
+    "아파트 시가총액", "학교 상세", "실거래가 단지 검색", "아파트 TOP 20", "거래량 TOP 20",
+}
+if not uses_global_filters:
+    render_sidebar_update(update_summary)
+if menu == "부산 Overview":
+    render_compact_update_status(update_summary, update_error)
+else:
+    render_update_status(update_summary, update_error)
 if menu == "아파트 시가총액":
     from src.market_cap_display import render_market_cap
     render_market_cap()
@@ -1060,6 +1142,8 @@ if menu == "아파트 TOP 20":
 
 panel = load_panel()
 if panel.empty or complexes.empty:
+    if uses_global_filters:
+        render_sidebar_update(update_summary)
     st.warning("분석 데이터가 없습니다. 먼저 `python main.py demo` 또는 데이터 수집 후 `python main.py build`를 실행하세요.")
     st.stop()
 if menu == "거래량 TOP 20":
@@ -1067,6 +1151,7 @@ if menu == "거래량 TOP 20":
     st.stop()
 
 filtered_panel, filtered_complexes = filter_data(panel, complexes)
+render_sidebar_update(update_summary)
 if filtered_complexes.empty:
     st.info("현재 필터에 해당하는 단지가 없습니다.")
     st.stop()
@@ -1075,26 +1160,65 @@ districts = build_district_summary(filtered_complexes)
 dongs = build_dong_summary(filtered_complexes)
 
 if menu == "부산 Overview":
-    st.subheader(":material/map: 조건에 맞는 아파트 위치")
-    st.caption(
-        f"기본 표시 조건: {DEFAULT_MIN_HOUSEHOLDS:,}세대 이상 · "
-        f"사용승인 {DEFAULT_MIN_APPROVAL_YEAR}년 이후 · 구·군/법정동 전체"
+    st.subheader(":material/map: 부산 아파트 지도")
+    household_filter = st.session_state.get("filter_household_range", (DEFAULT_MIN_HOUSEHOLDS, None))
+    approval_filter = st.session_state.get("filter_approval_year_range", (DEFAULT_MIN_APPROVAL_YEAR, None))
+    household_max = pd.to_numeric(complexes["households"], errors="coerce").max()
+    household_label = (
+        f"{household_filter[0]:,}세대+" if household_filter[1] is None or household_filter[1] >= household_max
+        else f"{household_filter[0]:,}~{household_filter[1]:,}세대"
     )
-    with st.container(horizontal=True, vertical_alignment="bottom"):
+    approval_label = (
+        f"{approval_filter[0]}년 이후" if approval_filter[1] is None or approval_filter[1] >= pd.Timestamp.today().year
+        else f"{approval_filter[0]}~{approval_filter[1]}년"
+    )
+    region_label = " · ".join(st.session_state.get("filter_districts", [])) or "부산 전체"
+    if st.session_state.get("filter_dongs"):
+        region_label += f" · 법정동 {len(st.session_state['filter_dongs'])}곳"
+    st.caption(f"{household_label}  ·  {approval_label}  ·  {region_label}")
+    overview_trade_path = ROOT / "data" / "interim" / "trade_matched.parquet"
+    overview_cap_pointer = PROCESSED / "market_cap" / "kb" / "latest.json"
+    overview_school_value_path = ROOT / "phase149_school_value_master.xlsx"
+    overview_metrics = load_overview_map_metrics(
+        tuple(complexes["internal_complex_id"].astype(str).unique()),
+        overview_trade_path.stat().st_mtime_ns if overview_trade_path.is_file() else 0,
+        overview_cap_pointer.stat().st_mtime_ns if overview_cap_pointer.is_file() else 0,
+        overview_school_value_path.stat().st_mtime_ns if overview_school_value_path.is_file() else 0,
+    )
+    with st.container(horizontal=True, vertical_alignment="bottom", gap="small"):
         show_apartments = st.toggle("아파트", value=True, key="show_apartments")
         show_elementary = st.toggle("초등학교", value=False, key="show_elementary")
         show_middle = st.toggle("중학교", value=False, key="show_middle")
         school_top_n = st.selectbox("학교 상위 N", [10, 20, 30, 50], index=2, key="school_top_n")
         school_scope = st.segmented_control("학교 순위 범위", ["부산 전체", "선택 지역"], default="부산 전체", key="school_scope")
-    st.caption("학교 위치와 점수를 함께 표시합니다. 인접한 학교가 해당 아파트의 배정학교라는 뜻은 아닙니다.")
-    if st.session_state.get("filter_dongs"):
-        st.caption("학교 snapshot의 동 정보는 화면 필터에 사용하지 않으며 학교 지역 범위는 구·군까지만 지원합니다.")
-    if school_error:
-        st.warning(f"학교 레이어를 사용할 수 없습니다: {school_error}. 기존 아파트 지도는 계속 사용할 수 있습니다.")
-    elif school_data.empty and (show_elementary or show_middle):
-        st.info("학교 snapshot이 없습니다. `python main.py sync-school-data --source ../busan_school_analysis`를 실행해 주세요.")
+    available_color_modes = ["가격"]
+    if overview_metrics["school_value_gap_pct"].notna().any():
+        available_color_modes.append("School Value Gap")
+    if (
+        "overview_marker_color_mode" in st.session_state
+        and st.session_state["overview_marker_color_mode"] not in available_color_modes
+    ):
+        st.session_state["overview_marker_color_mode"] = "가격"
+    with st.container(horizontal=True, vertical_alignment="bottom", gap="small"):
+        marker_size_mode = st.segmented_control(
+            "마커 크기",
+            ["세대수", "시가총액", "최근 12개월 거래금액"],
+            default="세대수",
+            key="overview_marker_size_mode",
+            persist_state="session",
+        )
+        marker_color_mode = st.segmented_control(
+            "마커 색상",
+            available_color_modes,
+            default="가격",
+            key="overview_marker_color_mode",
+            persist_state="session",
+        )
+    latest_trade_date = overview_metrics.attrs.get("latest_trade_date")
+    window_start = overview_metrics.attrs.get("window_start")
     selected_districts = st.session_state.get("filter_districts", [])
     school_layers = []
+    school_layer_status = []
     for level, enabled in (("elementary", show_elementary), ("middle", show_middle)):
         if enabled and not school_data.empty:
             selected = select_top_schools(school_data, level, school_top_n, school_scope, selected_districts)
@@ -1102,7 +1226,7 @@ if menu == "부산 Overview":
             located = int(selected["coordinate_valid"].sum())
             label = "초등학교" if level == "elementary" else "중학교"
             qualifier = f" 중 현재 지역 {len(selected)}개" if school_scope == "부산 전체" and selected_districts else ""
-            st.caption(f"{label}: 선정 {school_top_n}개{qualifier} / 지도 표시 {located}개 / 좌표 미확인 {len(selected) - located}개")
+            school_layer_status.append(f"{label}: 선정 {school_top_n}개{qualifier} / 지도 표시 {located}개 / 좌표 미확인 {len(selected) - located}개")
     map_schools = pd.concat(school_layers, ignore_index=True) if school_layers else pd.DataFrame()
     if not map_schools.empty:
         map_schools = map_schools[map_schools["coordinate_valid"]]
@@ -1113,14 +1237,12 @@ if menu == "부산 Overview":
             icon=":material/location_off:",
         )
     else:
-        st.caption("지도 마커를 클릭하면 아파트 상세로 이동하거나 학교 요약 카드를 표시합니다.")
-        map_complexes = add_map_price_metrics(located_complexes, filtered_panel)
-        map_complexes["entity_type"] = "apartment"
-        st.caption(
-            "초록 삼각형 = 초등학교 수요점수 · 보라 사각형 = 중학교 진학성과 점수 · "
-            "학교 점수가 높을수록 마커가 큽니다 · 초·중학교 점수는 서로 다른 지표이므로 직접적인 우열 비교 불가"
+        map_complexes = add_map_price_metrics(located_complexes, filtered_panel).merge(
+            overview_metrics,
+            on="internal_complex_id",
+            how="left",
         )
-        st.caption("8억원 이상 고가 단지는 1억원 단위로 색상을 구분합니다.")
+        map_complexes["entity_type"] = "apartment"
         available_map_ids = set(map_complexes["internal_complex_id"].astype(str))
         selected_map_focus_id = str(
             st.session_state.get("detail_complex_id", DEFAULT_MAP_FOCUS_ID)
@@ -1129,13 +1251,54 @@ if menu == "부산 Overview":
             selected_map_focus_id = DEFAULT_MAP_FOCUS_ID
         map_apartments = map_complexes if show_apartments else map_complexes.iloc[0:0]
         st.pydeck_chart(
-            combined_pydeck_map(map_apartments, map_schools, focus_complex_id=selected_map_focus_id),
+            combined_pydeck_map(
+                map_apartments,
+                map_schools,
+                focus_complex_id=selected_map_focus_id,
+                marker_size_mode=marker_size_mode,
+                marker_color_mode=marker_color_mode,
+            ),
             width="stretch",
             height=650,
             key="apartment_map_selection",
             on_select=open_map_selection,
             selection_mode="single-object",
         )
+        st.caption(f"크기: {marker_size_mode} · 색상: {marker_color_mode}")
+        legend_values = size_legend_values(map_complexes[SIZE_MODE_COLUMNS[marker_size_mode]])
+        if legend_values is None:
+            st.caption("마커 크기: 자료가 없는 단지는 최소 크기로 표시")
+        else:
+            st.caption(f"마커 크기 · {marker_size_mode}")
+            legend_formatter = (
+                (lambda value: f"{value:,.0f}세대") if marker_size_mode == "세대수" else format_krw
+            )
+            with st.container(horizontal=True, gap="small"):
+                for symbol, value, label in zip(("○", "◯", "●"), legend_values, ("25%", "중앙", "75%"), strict=True):
+                    st.caption(f"{symbol} {legend_formatter(value)}  ·  {label}")
+        with st.popover("ⓘ 지도 읽는 법"):
+            st.markdown("**아파트** · 원의 크기는 선택한 규모, 색상은 선택한 가격/분석 지표입니다. 마커를 클릭하면 단지 상세로 이동합니다.")
+            st.markdown("**크기 기준** · 세대수는 물리적 규모, 시가총액은 자산가치, 최근 12개월 거래금액은 시장 유동성을 나타냅니다.")
+            st.markdown("**학교** · 초록 삼각형은 초등학교 수요점수, 보라 사각형은 중학교 진학성과 점수입니다. 점수가 높을수록 마커가 큽니다. 인접 학교가 해당 단지의 배정학교를 뜻하지 않으며, 초·중학교 점수는 직접 비교할 수 없습니다.")
+            st.markdown("**색상** · 가격은 기존 거래가격 구간을 사용하며 8억원 이상은 1억원 단위로 구분합니다. School Value Gap은 0을 중립으로 음수는 파랑, 양수는 빨강, 결측은 흐린 회색입니다.")
+            if school_layer_status:
+                for status_line in school_layer_status:
+                    st.caption(status_line)
+            with st.expander("산정 기준 자세히 보기"):
+                st.caption("크기는 유효값의 2~98백분위 범위를 잘라낸 뒤 제곱근 변환해 5~26px로 표시합니다. 결측은 최소 크기입니다.")
+                if latest_trade_date is not None and window_start is not None:
+                    st.caption(f"최근 12개월 거래금액: {pd.Timestamp(window_start):%Y.%m.%d} 초과~{pd.Timestamp(latest_trade_date):%Y.%m.%d} 이하 계약")
+                st.caption("실거래는 단지 식별자 internal_complex_id로 연결합니다. 시가총액은 아파트 시가총액 화면의 최신 KB 보정 산출물입니다.")
+                if st.session_state.get("filter_dongs"):
+                    st.caption("학교 위치는 구·군 범위까지만 필터링하며 법정동 선택은 적용하지 않습니다.")
+        if school_error:
+            st.warning(f"학교 레이어를 사용할 수 없습니다: {school_error}. 아파트 지도는 계속 사용할 수 있습니다.")
+        elif school_data.empty and (show_elementary or show_middle):
+            st.info("학교 snapshot이 없습니다. `python main.py sync-school-data --source ../busan_school_analysis`를 실행해 주세요.")
+        if marker_size_mode == "시가총액" and not overview_metrics["market_cap_krw"].notna().any():
+            st.info("시가총액 산출물이 없어 아파트를 최소 크기로 표시합니다.")
+        if marker_size_mode == "최근 12개월 거래금액" and latest_trade_date is None:
+            st.info("실거래 원장이 없어 거래금액을 표시할 수 없습니다.")
         selected_school_id = str(st.session_state.get("selected_school_id", ""))
         selected_school = map_schools[map_schools["school_id"].astype(str).eq(selected_school_id)] if selected_school_id else pd.DataFrame()
         if not selected_school.empty:
@@ -1220,7 +1383,7 @@ elif menu == "아파트 상세":
     metrics = [
         ("세대수", "-" if pd.isna(row['households']) else f"{row['households']:,.0f}"),
         ("현재 연식", "-" if pd.isna(row['apartment_age']) else f"{row['apartment_age']:.0f}년"),
-        ("세대당 주차", "-" if pd.isna(row['parking_per_household']) else f"{row['parking_per_household']:.2f}"),
+        ("세대당 주차", "-" if pd.isna(row['parking_per_household']) else f"{row['parking_per_household']:.1f}"),
         ("12개월 거래", f"{row['transactions_12m']:.0f}건"),
         ("거래회전율", percent(row["turnover_12m"])), ("84㎡ 가격", won(row["price_84"])),
         ("6개월 변화", percent(row["price_change_6m"])), ("고점 대비", percent(row["drawdown_from_peak"])),
@@ -1352,9 +1515,9 @@ elif menu == "아파트 상세":
                 width="stretch",
                 column_config={
                     "계약일": st.column_config.DateColumn(format="YYYY-MM-DD"),
-                    "전용면적(㎡)": st.column_config.NumberColumn(format="%.2f"),
+                    "전용면적(㎡)": st.column_config.NumberColumn(format="%.1f"),
                     "층": st.column_config.NumberColumn(format="%.0f"),
-                    "보증금(억원)": st.column_config.NumberColumn(format="%.2f"),
+                    "보증금(억원)": st.column_config.NumberColumn(format="%.1f"),
                     "월세(만원)": st.column_config.NumberColumn(format="%.0f"),
                 },
             )

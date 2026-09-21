@@ -11,6 +11,7 @@ import shutil
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+import numpy as np
 import pandas as pd
 
 from .clean_trade import clean_trade
@@ -38,6 +39,36 @@ def load_complexes() -> pd.DataFrame:
     raw = pd.read_parquet(ROOT / "data/raw/kapt/busan_complexes.parquet")
     scope = raw[["kaptCode", "codeSaleNm", "codeAptNm"]].rename(columns={"kaptCode": "kapt_code", "codeSaleNm": "sale_type", "codeAptNm": "building_type"})
     return k.merge(scope, on="kapt_code", how="left", validate="one_to_one")
+
+
+def snap_trade_areas_to_master(trades: pd.DataFrame, master: pd.DataFrame) -> pd.DataFrame:
+    """Snap precise trade areas only when a master area can be identified within 0.01㎡."""
+    trades = trades.copy()
+    master_groups = {
+        code: np.sort(grp["exclusive_area_sqm"].dropna().unique())
+        for code, grp in master.groupby("kapt_code")
+    }
+    unique_pairs = trades[["kapt_code", "area_sqm"]].drop_duplicates()
+    mapping = {}
+    for code, area in unique_pairs.itertuples(index=False):
+        candidates = master_groups.get(code)
+        mapped = area
+        if candidates is not None and len(candidates) > 0 and pd.notna(area):
+            close = candidates[np.abs(candidates - area) <= 0.01 + 1e-12]
+            if len(close) == 1:
+                mapped = close[0]
+            elif len(close) > 1:
+                # 84.9856㎡처럼 2자리 경계 양쪽에 후보가 있으면 원자료의
+                # 절삭 2자리 값과 정확히 일치하는 마스터를 우선한다.
+                truncated = np.floor(float(area) * 100) / 100
+                truncated_match = close[np.isclose(close, truncated, rtol=0, atol=1e-9)]
+                if len(truncated_match) == 1:
+                    mapped = truncated_match[0]
+        mapping[(code, area)] = mapped
+
+    pairs = list(zip(trades["kapt_code"], trades["area_sqm"]))
+    trades["area_sqm"] = [mapping.get(pair, pair[1]) for pair in pairs]
+    return trades
 
 
 def load_trades(paths: list[Path], log_path: Path) -> tuple[pd.DataFrame, dict]:
@@ -157,6 +188,7 @@ def run(args) -> dict:
     raw_paths = sorted((ROOT / "data/raw/trade").glob("*/*.parquet"))
     log = ROOT / "data/processed/apartment_match_log.csv"
     trades, audit = load_trades(raw_paths, log)
+    trades = snap_trade_areas_to_master(trades, master)
     rules_hash = file_hash([args.rules, Path(__file__).with_name("market_cap.py"), Path(__file__), Path(__file__).with_name("clean_trade.py")])
     master_hash = file_hash([args.master])
     input_hash = file_hash(raw_paths + [log, ROOT / "data/interim/kapt_clean.parquet", ROOT / "data/raw/kapt/busan_complexes.parquet"])

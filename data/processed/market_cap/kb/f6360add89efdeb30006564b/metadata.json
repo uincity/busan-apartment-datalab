@@ -1,0 +1,47 @@
+{
+  "run_id": "f6360add89efdeb30006564b",
+  "input_hash": "14cee39c0924d73b944c902f450db324f3a7bca1a7b965683fed996a32bc94b4",
+  "rules_hash": "89b7d471882cba51a8f6be35dd2f0df2bc450ba10b14aad5b8e3f08dddd86a22",
+  "release": "area_master_20260918",
+  "executed_at": "2026-09-18T13:59:04.865051+09:00",
+  "price_source": "kb_sale_general",
+  "price_unit_original": "만원",
+  "price_unit": "원",
+  "collection_start": "2026-09-18T10:29:14.811203",
+  "collection_end": "2026-09-18T11:20:47.633966",
+  "missing_price_dates": 3308,
+  "master_types": 3308,
+  "transaction_area_groups": 2968,
+  "master_complexes": 497,
+  "targets": 560,
+  "complete": 360,
+  "adjusted_complete": 362,
+  "adjustment_policy": {
+    "version": "nearest-exclusive-area-v1",
+    "method": "nearest_exclusive_area_unit_price",
+    "source": "사용자 요청: 평형별 세대수 보완 완료 기준 면적 단가 보정",
+    "complexes": {
+      "A10022847": {
+        "households": 1384,
+        "scope": "전체 주거 세대 (사용자 확인 기준)"
+      },
+      "A10023607": {
+        "households": 975,
+        "scope": "전체 주거 세대 (사용자 확인 기준, 분양·임대 구분 없이 평가)"
+      }
+    }
+  },
+  "price_issues": {
+    "": 2476,
+    "KB 일반매매가 미확보": 566,
+    "KB 타입 연결 미확인": 266
+  },
+  "source_files": {
+    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\data\\releases\\area_master_20260918\\market_cap_area_master.csv": "6cbbb444dfe5e49fc411b8f9d7c556b31a2216e9409303a202e02d50d9f8871b",
+    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\data\\raw\\kb\\kb_area_types.csv": "79eb28c0531db4567e4fe67200daf33b8be6ab2ab78b8d4742c9de4a5b17f15a",
+    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\data\\releases\\area_master_20260918\\area_master_complex_status.csv": "8a32a795fa195574b58d6159ea42f72bb2d27216a4c877d7ec5671fbe73656de",
+    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\data\\qa\\phase4_mixed_complex_audit.csv": "18f0b4366950c3895e3928bfcd3d81204e723519525ee4e87d69999246fb07a7",
+    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\data\\releases\\area_master_20260918\\RELEASE_INFO.json": "1b6ae39eda223501c880d3c40d57ac1a374bf26727ec5019c1aef5c01fa1dcf0",
+    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\busan_apartment_analysis\\config\\market_cap_kb_adjustments.json": "bbecf79eab31b021baee3756814a3acca265e37d132d15a8ac5b5d26cec17bf9"
+  }
+}

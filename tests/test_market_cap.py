@@ -8,7 +8,8 @@ import pytest
 from src.clean_trade import clean_trade
 from src.market_cap import (MASTER_COLUMNS, TransactionMedian, estimate_month,
                             rank_history, validate_master)
-from src.market_cap_batch import load_manifest, read_history, save_month
+from src.market_cap_batch import (load_manifest, read_history, save_month,
+                                  snap_trade_areas_to_master)
 
 
 def fixture_data():
@@ -119,6 +120,46 @@ def test_area_exact_match_and_approval_date():
     result, _ = evaluate(k, m, t)
     assert pd.isna(result.iloc[0].market_cap_krw)
     assert result.iloc[0].price_coverage == 0
+
+
+def test_precise_trade_areas_snap_to_verified_master_without_mutating_unmatched_values():
+    trades = pd.DataFrame({
+        "kapt_code": ["K1", "K1", "K1", "K2"],
+        "area_sqm": [84.9856, 59.9069, 70.1234, 84.9856],
+    })
+    master = pd.DataFrame({
+        "kapt_code": ["K1", "K1", "K1"],
+        "exclusive_area_sqm": [84.98, 84.99, 59.90],
+    })
+    snapped = snap_trade_areas_to_master(trades, master)
+    assert snapped.area_sqm.tolist() == [84.98, 59.90, 70.1234, 84.9856]
+
+
+def test_multi_complex_extrapolation_requires_explicit_approval_and_95_percent_coverage():
+    complexes, master, trades = fixture_data()
+    complexes.loc[0, "sale_type"] = "혼합"
+    master.loc[0, "households"] = 50
+    master.loc[1, "households"] = 950
+    trades = trades.loc[trades.area_sqm.eq(84)].copy()
+    rules = {
+        "minimum_transactions": 3,
+        "approved_multi_complexes": ["K1"],
+        "minimum_extrapolation_coverage": 0.95,
+    }
+    total, areas = estimate_month(
+        complexes, master, trades, "2026-08", rules, pd.Timestamp("2020-01-01")
+    )
+    assert total.iloc[0].price_coverage == 1
+    assert total.iloc[0].grade == "D"
+    assert areas.loc[areas.exclusive_area_sqm.eq(59), "method"].iloc[0] == "nearest_exclusive_area_unit_price"
+
+    master.loc[0, "households"] = 51
+    master.loc[1, "households"] = 949
+    total, _ = estimate_month(
+        complexes, master, trades, "2026-08", rules, pd.Timestamp("2020-01-01")
+    )
+    assert pd.isna(total.iloc[0].market_cap_krw)
+    assert total.iloc[0].price_coverage == 0.949
 
 
 def test_master_effective_dates_and_no_double_count():

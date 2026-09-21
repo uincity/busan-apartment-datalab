@@ -23,6 +23,79 @@ from .market_cap import MASTER_COLUMNS, read_master, validate_master
 from .market_cap_batch import OUTPUT, file_hash, load_complexes
 
 KB_OUTPUT = OUTPUT / "kb"
+ADJUSTMENTS = ROOT / "config/market_cap_kb_adjustments.json"
+
+
+def adjusted_valuation(totals: pd.DataFrame, detail: pd.DataFrame, policy: dict):
+    """Keep observed values intact; extrapolate only explicitly authorized complexes."""
+    totals, detail = totals.copy(), detail.copy()
+    detail["adjusted_price_krw"] = detail.price_krw
+    detail["price_method"] = np.where(detail.price_krw.notna(), "KB 일반매매가", "미산정")
+    detail["reference_area_group_ids"] = ""
+    detail["reference_unit_price_krw_sqm"] = np.nan
+    totals["adjusted_market_cap_krw"] = totals.market_cap_krw
+    totals["estimated_households"] = 0
+    totals["adjusted_status"] = totals.status
+    totals["adjusted_scope"] = totals.valuation_scope
+    totals["adjustment_source"] = ""
+    if policy["method"] != "nearest_exclusive_area_unit_price":
+        raise ValueError("알 수 없는 KB 보정 규칙")
+    for code, rule in policy["complexes"].items():
+        indices = totals.index[totals.kapt_code.eq(code)]
+        if len(indices) != 1:
+            continue
+        i = indices[0]
+        rows = detail.loc[detail.kapt_code.eq(code)]
+        # Scope override is a user-confirmed whole-residential assumption, never a verified sale split.
+        blockers = [r for r in totals.at[i, "reason"].split("; ")
+                    if r and r not in ("임대·혼합 분양 범위 확인 필요", "KB 시세 또는 타입 연결 부족")]
+        if (blockers or rows.empty or rows.households.sum() != rule["households"]
+                or totals.at[i, "households"] != rule["households"]
+                or not rows.verification_status.eq("verified").all()
+                or not rows.scope.eq("sale_apartment").all()):
+            continue
+        donors = rows.loc[rows.price_krw.notna() & rows.exclusive_area_sqm.gt(0)]
+        overrides = rule.get("type_price_overrides_krw", {})
+        unknown_overrides = set(overrides) - set(rows.area_group_id)
+        if unknown_overrides:
+            raise ValueError(f"{code}: 알 수 없는 평형 가격 보정 {sorted(unknown_overrides)}")
+        for j, row in rows.loc[rows.price_reason.eq("KB 일반매매가 미확보")].iterrows():
+            override = pd.to_numeric(overrides.get(row.area_group_id), errors="coerce")
+            if pd.notna(override) and override > 0:
+                detail.at[j, "adjusted_price_krw"] = override
+                detail.at[j, "price_method"] = rule.get("price_method", "승인된 외부 가격 보정")
+        missing = rows.index[detail.loc[rows.index, "adjusted_price_krw"].isna()]
+        for j, row in rows.loc[missing].iterrows():
+            if row.price_reason != "KB 일반매매가 미확보":
+                continue
+            collected = pd.to_datetime(row.collected_at, errors="coerce")
+            start, end = pd.to_datetime(row.valid_from, errors="coerce"), pd.to_datetime(row.valid_to, errors="coerce")
+            if (pd.isna(collected) or (pd.notna(start) and collected.normalize() < start)
+                    or (pd.notna(end) and collected.normalize() > end)):
+                continue
+            candidates = donors.loc[donors.kb_complex_id.eq(row.kb_complex_id)]
+            if candidates.empty or row.exclusive_area_sqm <= 0:
+                continue
+            distance = (candidates.exclusive_area_sqm - row.exclusive_area_sqm).abs()
+            nearest = candidates.loc[np.isclose(distance, distance.min(), rtol=0, atol=1e-9)]
+            unit = ((nearest.price_krw / nearest.exclusive_area_sqm) * nearest.households).sum() / nearest.households.sum()
+            detail.at[j, "adjusted_price_krw"] = round(unit * row.exclusive_area_sqm)
+            detail.at[j, "price_method"] = "면적 단가 보정 추정"
+            detail.at[j, "reference_area_group_ids"] = " | ".join(nearest.area_group_id)
+            detail.at[j, "reference_unit_price_krw_sqm"] = unit
+        adjusted = detail.loc[rows.index]
+        if adjusted.adjusted_price_krw.notna().all():
+            totals.at[i, "adjusted_market_cap_krw"] = (adjusted.households * adjusted.adjusted_price_krw).sum()
+            estimated_households = adjusted.loc[
+                ~adjusted.price_method.isin(["KB 일반매매가", "미산정"]), "households"
+            ].sum()
+            totals.at[i, "estimated_households"] = estimated_households
+            if estimated_households > 0:
+                totals.at[i, "adjusted_status"] = "보정 추정 (사용자 확인 범위)"
+                totals.at[i, "adjusted_scope"] = rule["scope"]
+                totals.at[i, "adjustment_source"] = rule.get("source", policy["source"])
+    detail["adjusted_contribution_krw"] = detail.households * detail.adjusted_price_krw
+    return totals, detail
 
 
 def transaction_master(types: pd.DataFrame) -> pd.DataFrame:
@@ -163,7 +236,7 @@ def run(source: Path, release: Path | None = None, output: Path = KB_OUTPUT) -> 
     raw_path = source / "data/raw/kb/kb_area_types.csv"
     status_path = release / "area_master_complex_status.csv"
     split_path = source / "data/qa/phase4_mixed_complex_audit.csv"
-    paths = [master_path, raw_path, status_path, split_path, release / "RELEASE_INFO.json"]
+    paths = [master_path, raw_path, status_path, split_path, release / "RELEASE_INFO.json", ADJUSTMENTS]
     types = read_master(master_path)
     complexes = load_complexes()
     merged = transaction_master(types)
@@ -183,6 +256,8 @@ def run(source: Path, release: Path | None = None, output: Path = KB_OUTPUT) -> 
         raise ValueError("배포 마스터와 단지 검수 상태 불일치")
     detail = link_prices(types, pd.read_csv(raw_path, dtype=str).fillna(""))
     totals = estimate_kb(complexes.loc[complexes.households.ge(500)], detail, status, splits)
+    policy = json.loads(ADJUSTMENTS.read_text(encoding="utf-8"))
+    totals, detail = adjusted_valuation(totals, detail, policy)
     input_hash = file_hash(paths + [ROOT / "data/interim/kapt_clean.parquet", ROOT / "data/raw/kapt/busan_complexes.parquet"])
     rules_hash = file_hash([Path(__file__), Path(__file__).with_name("market_cap.py")])
     run_id = hashlib.sha256(f"{input_hash}:{rules_hash}".encode()).hexdigest()[:24]
@@ -195,6 +270,8 @@ def run(source: Path, release: Path | None = None, output: Path = KB_OUTPUT) -> 
                 "master_types": len(types), "transaction_area_groups": len(merged),
                 "master_complexes": types.kapt_code.nunique(), "targets": len(totals),
                 "complete": int(totals.market_cap_krw.notna().sum()),
+                "adjusted_complete": int(totals.adjusted_market_cap_krw.notna().sum()),
+                "adjustment_policy": policy,
                 "price_issues": detail.price_reason.value_counts().to_dict(),
                 "source_files": {str(p): file_hash([p]) for p in paths}}
     output.mkdir(parents=True, exist_ok=True)

@@ -4,6 +4,8 @@
   "minimum_transactions": 3,
   "windows": [3, 6, 12],
   "area_tolerance_sqm": 0.0,
+  "approved_multi_complexes": ["A10023975", "A10022890", "A60809004", "A10025075"],
+  "minimum_extrapolation_coverage": 0.95,
   "default_grades": ["A", "B"],
   "price_source": "transaction_median"
 }

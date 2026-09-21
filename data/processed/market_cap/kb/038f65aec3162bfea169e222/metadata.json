@@ -1,0 +1,111 @@
+{
+  "run_id": "038f65aec3162bfea169e222",
+  "input_hash": "567e84e04e94807ff5d4cce30a5041962b964cb7010a45077b0dd3a9b16d653d",
+  "rules_hash": "e6a78e9a28de546e7ef9a17a31ba99e811603dc7aeb59eb257188f8476bf3557",
+  "release": "area_master_20260918",
+  "executed_at": "2026-09-21T13:37:20.709459+09:00",
+  "price_source": "kb_sale_general",
+  "price_unit_original": "만원",
+  "price_unit": "원",
+  "collection_start": "2026-09-18T10:29:14.811203",
+  "collection_end": "2026-09-21T13:30:00.000000",
+  "missing_price_dates": 3278,
+  "master_types": 3435,
+  "transaction_area_groups": 3074,
+  "master_complexes": 511,
+  "targets": 560,
+  "complete": 371,
+  "adjusted_complete": 377,
+  "adjustment_policy": {
+    "version": "nearest-exclusive-area-v1",
+    "method": "nearest_exclusive_area_unit_price",
+    "source": "사용자 요청: 평형별 세대수 보완 완료 기준 면적 단가 보정",
+    "complexes": {
+      "A10022847": {
+        "households": 1384,
+        "scope": "전체 주거 세대 (사용자 확인 기준)"
+      },
+      "A10023607": {
+        "households": 975,
+        "scope": "전체 주거 세대 (사용자 확인 기준, 분양·임대 구분 없이 평가)"
+      },
+      "A10023975": {
+        "households": 3853,
+        "scope": "전체 주거 세대 (사용자 승인 기준, 임대 포함 정밀 단가 보정)"
+      },
+      "A10022890": {
+        "households": 4470,
+        "scope": "전체 주거 세대 (사용자 승인 기준, 임대 포함 정밀 단가 보정)"
+      },
+      "A10025075": {
+        "households": 1038,
+        "scope": "전체 주거 세대 (사용자 승인 기준, 미시세 펜트하우스 보정)"
+      },
+      "A60809004": {
+        "households": 7374,
+        "scope": "전체 주거 세대 (사용자 승인 기준, 1~5차 전체)"
+      },
+      "A10027832": {
+        "households": 3160,
+        "scope": "전체 분양 세대 (임대 630세대 제외 3,160세대 전수 산정)"
+      },
+      "A60701004": {
+        "households": 1285,
+        "scope": "전체 주거 세대 (1단지+2단지 통합 산정)"
+      },
+      "A61202009": {
+        "households": 1008,
+        "scope": "전체 주거 세대 (1단지+2단지 통합 산정)"
+      },
+      "A10026557": {
+        "households": 753,
+        "scope": "전체 주거 세대 (1단지+2단지 통합 산정)"
+      },
+      "A61673902": {
+        "households": 538,
+        "scope": "전체 주거 세대 (1단지+2단지 통합 산정)"
+      },
+      "A61175209": {
+        "households": 1452,
+        "scope": "전체 주거 세대 (1~5차 통합 산정)"
+      },
+      "A60608303": {
+        "households": 2088,
+        "scope": "전체 분양 세대 (임대분리형 단지)"
+      },
+      "A61409004": {
+        "households": 566,
+        "scope": "전체 주거 세대 (아파트 566세대 산정)"
+      },
+      "A60976502": {
+        "households": 735,
+        "scope": "전체 분양 세대 (임대 150세대 제외 735세대 산정)"
+      },
+      "A61776303": {
+        "households": 1962,
+        "scope": "전체 분양 세대 (1,962세대 산정)"
+      },
+      "A10025258": {
+        "households": 352,
+        "scope": "전체 주거 세대 (352세대 평형 산정)"
+      },
+      "A10025154": {
+        "households": 699,
+        "scope": "공공임대 분양전환 단지"
+      }
+    }
+  },
+  "price_issues": {
+    "": 2621,
+    "KB 일반매매가 미확보": 578,
+    "KB 타입 연결 미확인": 236
+  },
+  "source_files": {
+    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\data\\releases\\area_master_20260918\\market_cap_area_master.csv": "e418902f2b105ddab42a83b813f157040257acc5d11f43999d10ca0f6b17ba89",
+    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\data\\raw\\kb\\kb_area_types.csv": "7de1d7e6fe7d25736c01429b5b4a27bef06671f95aba19002ccd867710d1b4da",
+    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\data\\releases\\area_master_20260918\\area_master_complex_status.csv": "4350e143e373406ae069b6c6b5acb7dfe90f10357fda7634d0e8e58dc860e1b2",
+    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\data\\qa\\phase4_mixed_complex_audit.csv": "609e03b83cb0e2604c192a17300302dcf4e93767c40e40f40df029a54af55ab7",
+    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\data\\releases\\area_master_20260918\\RELEASE_INFO.json": "1b6ae39eda223501c880d3c40d57ac1a374bf26727ec5019c1aef5c01fa1dcf0",
+    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\busan_apartment_analysis\\config\\market_cap_kb_adjustments.json": "5381108a9e5079e7cbe0cceca7c503829ecaad630ccfbfc5b8bc329e9a10396d"
+  }
+}

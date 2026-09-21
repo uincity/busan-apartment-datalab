@@ -11,7 +11,7 @@ KB 화면의 기본 `시세 보정` 옵션을 **보정 추정 포함**으로 설
 
 보정 가격 = 같은 KB 단지의 **전용면적이 가장 가까운 가격 확보 타입의 원/전용㎡ 단가 × 누락 타입 전용면적**. 동일 거리 후보가 여럿이면 단가를 세대수로 가중평균합니다. 추정 가격을 다시 다른 타입의 기준으로 사용하지 않습니다. 원 단위 반올림 후 세대수를 곱합니다. 사용자 제시 18억원·16.5억원을 상수로 입력하지 않았으므로 제시된 예상 범위보다 다소 낮습니다.
 
-규칙과 대상 세대수는 `config/market_cap_kb_adjustments.json`에서 관리하고 실행 해시에 포함합니다. 남천프레스티지 975세대는 사용자 확인에 따른 **전체 주거 세대 평가 가정**이며, 기존 K-apt 혼합 분류를 분양 확정으로 변경하지 않습니다. 원본의 검수 상태·보완 사유와 KB 가격을 보존합니다. 가격 역전·세대수 불일치·타입 연결 오류·적용 기간 밖 자료는 보정하지 않습니다.
+규칙과 대상 세대수는 `../area_master/config/market_cap_kb_adjustments.json`에서 관리하고 실행 해시에 포함합니다. 웹서비스 프로젝트에는 보정 정책을 중복 관리하지 않습니다. 남천프레스티지 975세대는 사용자 확인에 따른 **전체 주거 세대 평가 가정**이며, 기존 K-apt 혼합 분류를 분양 확정으로 변경하지 않습니다. 원본의 검수 상태·보완 사유와 KB 가격을 보존합니다. 가격 역전·세대수 불일치·타입 연결 오류·적용 기간 밖 자료는 보정하지 않습니다.
 
 `market_cap_krw`와 `partial_cap_krw`는 원본 KB 기준을 유지하고, `adjusted_market_cap_krw`에 보정 전체 추정치를 기록합니다. 화면 순위는 선택 모드의 금액으로 재계산합니다. 상세와 CSV에서 원본 가격, 보정 가격, 기준 평형, 원/전용㎡ 단가, 보정 기여액을 확인할 수 있습니다. 부분 합계를 전체 시가총액으로 대체하지 않습니다. 기존 실거래 월별 산정 규칙에는 영향을 주지 않습니다.
 
@@ -67,11 +67,11 @@ KB는 A/B타입별 세대수와 가격을 유지합니다. 전용면적이 같�
 ### 실행과 저장
 
 ```powershell
-# 최종 배포본 + KB 가격 반영, 실거래용 평형 마스터 생성
-.venv\Scripts\python.exe -m src.market_cap_kb
+# area_master에서 최종 배포본 + KB 가격 + 승인 보정 snapshot 생성
+.venv\Scripts\python.exe ..\area_master\scripts\run_market_cap_kb_batch.py
 
-# 다른 경로/배포본을 명시할 때
-.venv\Scripts\python.exe -m src.market_cap_kb --source ../area_master --release ../area_master/data/releases/area_master_20260918
+# 산출물 해시·스키마·합계를 검증하고 웹서비스로 동기화
+.venv\Scripts\python.exe -m src.sync_area_master_market_cap
 
 # 최근 종료 월 실거래 갱신
 .venv\Scripts\python.exe -m src.market_cap_batch --reason "KB 배포 평형별 세대수 반영"
@@ -80,7 +80,7 @@ KB는 A/B타입별 세대수와 가격을 유지합니다. 전용면적이 같�
 .venv\Scripts\python.exe -m src.market_cap_batch --backfill --reason "평형 마스터 보완 후 과거 재구성"
 ```
 
-`src/market_cap_kb.py`는 외부 디렉터리를 읽기만 합니다. KB 산출물은 `data/processed/market_cap/kb/<실행해시>/`의 `complexes.parquet`, `areas.parquet`, `metadata.json`에 저장하며 `latest.json`을 원자적으로 갱신합니다. 같은 입력·코드는 같은 경로를 사용합니다. 메타데이터에 입력 파일별 해시와 계산 코드 해시를 기록합니다. 앱은 산출물만 읽으므로 배포 환경에 형제 `area_master` 디렉터리가 없어도 조회할 수 있습니다.
+`area_master` 배치는 `area_master/data/processed/market_cap/kb/<실행해시>/`에 `complexes.parquet`, `areas.parquet`, `metadata.json`을 저장하고 `latest.json`과 `summary.csv`를 갱신합니다. `src.sync_area_master_market_cap`은 콘텐츠 SHA-256, 스키마, 식별자 중복, 단지 합계와 메타데이터 건수를 확인한 뒤 이 프로젝트의 `data/processed/market_cap/kb/`로 원자적으로 동기화합니다. 앱은 동기화된 산출물만 읽으므로 배포 환경에 형제 `area_master` 디렉터리가 없어도 조회할 수 있습니다.
 
 검증: 전체 **117 passed**. KB 타입별 가격 차이, 만원→원 환산, 가격 누락·역전, 잘못된 타입/세대수 연결, 중복 원본·타입 재사용, 적용 기간, 혼합단지 분리, 동일 면적 실거래 마스터 합산, 화면과 빈 필터를 검증했습니다. 테스트 임시 폴더의 샌드박스 권한 오류 후 권한 확장으로 전체 테스트를 완료했습니다. 배포·스케줄러 등록은 수행하지 않았습니다.
 

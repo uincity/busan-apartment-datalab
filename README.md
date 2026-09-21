@@ -207,8 +207,10 @@ KB 시세 기준일이 없어 수집일을 표시하며, 누락 가격과 불일
 `보정 추정 포함` 모드는 승인된 누락 시세 보정을 포함해 421개 단지를 표시합니다. 남천자이는 KB 가격 부분합계와 펜트하우스 면적단가 보정을 합산하고, KB가 전 타입 가격을 제공하지 않는 해운대두산위브더제니스는 검증된 최근 실거래 기반 평형가격을 별도 보정 추정으로 표시합니다. `KB 시세만` 모드는 385개를 표시하며 상세 화면에서 원본 가격, 보정 방식과 출처를 구분합니다.
 
 ```powershell
-# 인접 area_master의 최신 배포본 + KB 수집 가격 반영
-.venv\Scripts\python.exe -m src.market_cap_kb
+# area_master에서 최신 배포본·KB 가격·승인 보정으로 최종 snapshot 생성
+.venv\Scripts\python.exe ..\area_master\scripts\run_market_cap_kb_batch.py
+# 해시·스키마 검증 후 웹서비스로 최종 snapshot 동기화
+.venv\Scripts\python.exe -m src.sync_area_master_market_cap
 # 새 평형 세대수로 최근 종료 월의 실거래 추정치 갱신
 .venv\Scripts\python.exe -m src.market_cap_batch --reason "KB 평형별 세대수 반영"
 # 필요 시 과거 월 전체 재구성 (현재 평형 구성 사용)

@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.market_cap_kb import adjusted_valuation, estimate_kb, link_prices, transaction_master
+from src.market_cap_kb import adjusted_valuation, estimate_kb, link_prices, resolve_adjustments, transaction_master
 from src.market_cap import MASTER_COLUMNS, validate_master
 
 
@@ -28,6 +28,16 @@ def fixture():
     status = pd.DataFrame([dict(kapt_code="K1", final_status="VERIFIED_MASTER")])
     splits = pd.DataFrame(columns=["kapt_code", "split_validity", "sale_households", "kapt_households", "rental_households_excluded"])
     return pd.DataFrame(rows), pd.DataFrame(prices), complexes, status, splits
+
+
+def test_area_master_owns_adjustment_policy(tmp_path):
+    source = tmp_path / "area_master"
+    release = source / "data" / "releases" / "release-1"
+    release.mkdir(parents=True)
+    policy = source / "config" / "market_cap_kb_adjustments.json"
+    policy.parent.mkdir()
+    policy.write_text("{}", encoding="utf-8")
+    assert resolve_adjustments(source, release) == policy
 
 
 def test_kb_type_prices_and_won_conversion():

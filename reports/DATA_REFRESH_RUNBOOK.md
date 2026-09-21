@@ -49,12 +49,13 @@ API 키·대상 월 확인
 .venv\Scripts\python.exe main.py collect-trade --start 202607 --end 202609 --force
 .venv\Scripts\python.exe main.py collect-rent --start 202607 --end 202609 --force
 .venv\Scripts\python.exe main.py build --incremental
-.venv\Scripts\python.exe -m src.market_cap_kb --source ..\area_master --release ..\area_master\data\releases\area_master_YYYYMMDD
+.venv\Scripts\python.exe ..\area_master\scripts\run_market_cap_kb_batch.py
+.venv\Scripts\python.exe -m src.sync_area_master_market_cap
 .venv\Scripts\python.exe -m src.market_cap_batch --reason "월간 실거래 및 area_master 갱신"
 .venv\Scripts\python.exe -m pytest -q
 ```
 
-`area_master`가 바뀌지 않았다면 `market_cap_kb` 단계는 생략합니다. 평형 마스터와 매매를 모두 갱신할 때는 `market_cap_kb`가 로컬 실거래용 마스터를 먼저 생성해야 하므로 반드시 `market_cap_batch`보다 앞에 실행합니다.
+`area_master`가 바뀌지 않았다면 KB 배치와 동기화 단계는 생략합니다. 평형 마스터와 매매를 모두 갱신할 때는 동기화가 로컬 실거래용 마스터를 먼저 교체해야 하므로 반드시 `market_cap_batch`보다 앞에 실행합니다.
 
 ---
 
@@ -247,34 +248,37 @@ Get-Content data\processed\data_update_status.json -Encoding UTF8
 | `data/releases/area_master_*/area_master_complex_status.csv` | 단지별 최종 검수 상태 |
 | `data/qa/phase4_mixed_complex_audit.csv` | 혼합단지 분양·임대 세대 구분 |
 | `data/releases/area_master_*/RELEASE_INFO.json` | 배포 식별과 입력 해시 이력 |
+| `config/market_cap_kb_adjustments.json` | 승인된 단지·평형별 KB 누락가격 보정 정책과 출처 |
+| `data/processed/market_cap/kb/` | `area_master`가 생성한 최종 KB 시가총액 불변 snapshot |
 
-로컬 `config/market_cap_kb_adjustments.json`의 승인된 보정 정책도 함께 입력 해시에 포함됩니다.
+보정 정책과 최종 KB 시가총액 산출 책임은 `area_master`에 있습니다. 웹서비스 프로젝트는 보정 정책을 별도로 유지하지 않고 검증된 최종 snapshot을 동기화해 표시합니다.
 
 ### 6.2 배포본 선택
 
 `--release`를 생략하면 디렉터리 이름순으로 가장 최신인 `area_master_*`가 선택됩니다. 운영 갱신에서는 잘못된 배포본 선택을 막기 위해 경로를 명시하는 것을 권장합니다.
 
 ```powershell
-.venv\Scripts\python.exe -m src.market_cap_kb `
-  --source ..\area_master `
-  --release ..\area_master\data\releases\area_master_YYYYMMDD
+.venv\Scripts\python.exe ..\area_master\scripts\run_market_cap_kb_batch.py
+.venv\Scripts\python.exe -m src.sync_area_master_market_cap
 ```
 
-이 작업은 다음을 수행합니다.
+첫 번째 명령은 `area_master`에서 다음을 수행합니다.
 
 1. 배포 마스터 형식과 K-apt 단지 식별자를 검증합니다.
 2. `VERIFIED_MASTER` 단지와 마스터 포함 단지의 일치를 검사합니다.
 3. 평형 면적·타입명·세대수가 모두 같은 KB 타입을 연결합니다.
 4. 혼합단지의 검증된 분양 세대 범위를 적용합니다.
-5. 승인된 단지만 로컬 보정 정책을 적용합니다.
-6. 새 불변 snapshot을 생성하고 `kb/latest.json`을 원자적으로 교체합니다.
-7. 실거래 시가총액용 `config/market_cap_area_master.csv`를 재생성합니다.
+5. `area_master/config/market_cap_kb_adjustments.json`에 승인된 단지만 보정합니다.
+6. `area_master/data/processed/market_cap/kb/`에 새 불변 snapshot과 `summary.csv`를 생성합니다.
+7. `area_master/data/processed/market_cap/market_cap_area_master.csv`를 재생성합니다.
+
+두 번째 명령은 산출물 SHA-256, 필수 컬럼, 단지·평형 식별자 중복, 단지별 보정 시가총액과 평형별 합계, 메타데이터 건수를 검증합니다. 모두 통과한 경우에만 snapshot과 실거래용 평형 마스터를 웹서비스 폴더로 복사하고 마지막에 `latest.json`을 원자적으로 교체합니다.
 
 입력 파일들이 서로 다른 시점의 자료이면 검증 실패 또는 잘못된 부분 산정이 발생할 수 있습니다. 마스터, 단지 상태, 혼합단지 감사 파일과 `RELEASE_INFO.json`은 하나의 일관된 배포본으로 관리합니다.
 
 ### 6.3 승인 보정 정책 변경
 
-KB가 일부 또는 전체 평형의 일반매매가를 제공하지 않지만 운영상 검증된 보정가격을 반영해야 한다면 `config/market_cap_kb_adjustments.json`을 수정합니다. 보정은 반드시 단지의 K-apt 코드 단위로 등록하고 다음 정보를 남깁니다.
+KB가 일부 또는 전체 평형의 일반매매가를 제공하지 않지만 운영상 검증된 보정가격을 반영해야 한다면 **`../area_master/config/market_cap_kb_adjustments.json`**을 수정합니다. 웹서비스 프로젝트에 별도 보정 규칙을 추가하지 않습니다. 보정은 반드시 단지의 K-apt 코드 단위로 등록하고 다음 정보를 남깁니다.
 
 - `households`: 보정 대상 단지의 검증된 전체 세대수
 - `scope`: 분양·임대 구분을 포함한 산정 범위
@@ -290,19 +294,17 @@ KB가 일부 또는 전체 평형의 일반매매가를 제공하지 않지만 �
 설정을 변경한 뒤 다음 순서로 재산정합니다.
 
 ```powershell
-.venv\Scripts\python.exe -m src.market_cap_kb `
-  --source ..\area_master `
-  --release ..\area_master\data\releases\area_master_YYYYMMDD
-
+.venv\Scripts\python.exe ..\area_master\scripts\run_market_cap_kb_batch.py
+.venv\Scripts\python.exe -m src.sync_area_master_market_cap
 .venv\Scripts\python.exe -m src.market_cap_batch --reason "KB 시세·평형 마스터 및 대상 단지 보정 반영"
 .venv\Scripts\python.exe -m pytest -q
 ```
 
-두 번째 명령은 첫 번째 명령으로 재생성된 `config/market_cap_area_master.csv`의 해시나 내용이 기존 값과 달라졌을 때 실행합니다. KB 보정 설정만 바뀌고 실거래용 평형 마스터가 동일하다면 `market_cap_batch`는 생략할 수 있습니다.
+세 번째 명령은 동기화된 `config/market_cap_area_master.csv`의 해시나 내용이 기존 값과 달라졌을 때 실행합니다. KB 보정 설정만 바뀌고 실거래용 평형 마스터가 동일하다면 `market_cap_batch`는 생략할 수 있습니다.
 
 #### 2026-09-21 적용 사례
 
-이번 적용은 `area_master_20260918`, 보정 정책 `approved-price-adjustments-v2`를 사용했습니다. 생성된 KB snapshot run ID는 `7dca9a0b1497486629e4191e`이며, KB 시세만으로 완전 산정된 단지는 385개, 보정 추정까지 포함하면 421개입니다.
+이번 적용은 `area_master_20260918`, 보정 정책 `approved-price-adjustments-v2`를 사용했습니다. `area_master`가 생성하고 서비스가 검증·동기화한 KB snapshot run ID는 `285aaf0c2b23697c9d41f95b`이며, KB 시세만으로 완전 산정된 단지는 385개, 보정 추정까지 포함하면 421개입니다.
 
 | 단지 | K-apt 코드 | 적용 방식 | 보정 후 시가총액 | 확인 사항 |
 |---|---|---|---:|---|
@@ -314,6 +316,7 @@ KB가 일부 또는 전체 평형의 일반매매가를 제공하지 않지만 �
 ### 6.4 KB 결과 확인
 
 ```powershell
+Get-Content ..\area_master\data\processed\market_cap\kb\latest.json -Encoding UTF8
 Get-Content data\processed\market_cap\kb\latest.json -Encoding UTF8
 Get-Item data\processed\market_cap\kb\summary.csv
 Get-Item config\market_cap_area_master.csv
@@ -327,6 +330,7 @@ Get-Item config\market_cap_area_master.csv
 - `complete`, `adjusted_complete`
 - `price_issues`
 - `source_files`의 경로와 SHA-256 해시
+- `artifact_files`의 `complexes.parquet`, `areas.parquet` 콘텐츠 SHA-256
 - `adjustment_policy.version`이 이번에 수정한 보정 정책 버전인지
 
 보정 대상 단지는 `data/processed/market_cap/kb/<run_id>/complexes.parquet`에서 다음 항목도 대조합니다.
@@ -340,7 +344,7 @@ Get-Item config\market_cap_area_master.csv
 
 ### 6.5 평형 마스터도 변경된 경우
 
-KB 가격만 바뀌었다면 `market_cap_kb` 실행으로 끝납니다. `market_cap_area_master.csv`의 평형별 세대수나 범위가 변경되었다면 실거래 기반 시가총액도 다시 산정합니다.
+KB 가격이나 보정 정책만 바뀌어도 `area_master` 배치와 서비스 동기화를 모두 실행합니다. 동기화된 `market_cap_area_master.csv`의 평형별 세대수나 범위까지 변경되었다면 실거래 기반 시가총액도 다시 산정합니다.
 
 ```powershell
 .venv\Scripts\python.exe -m src.market_cap_batch --reason "area_master 평형 마스터 갱신"
@@ -419,7 +423,6 @@ git diff --stat
 시가총액 갱신 시에는 다음도 포함합니다.
 
 - `config/market_cap_area_master.csv`
-- `config/market_cap_kb_adjustments.json` 변경분
 - `data/processed/market_cap/manifest.json`
 - 새 `data/processed/market_cap/YYYY-MM/<run_id>/`
 - `data/processed/market_cap/audit.json`과 관련 CSV
@@ -428,6 +431,8 @@ git diff --stat
 - `data/processed/market_cap/kb/summary.csv`
 
 원본 `data/raw`와 수집 메타데이터는 로컬 배치용이며 기본 Git 배포 대상이 아닙니다. `.env`도 절대 배포 커밋에 포함하지 않습니다.
+
+보정 정책 원본과 생성 측 snapshot은 `area_master` 저장소의 `config/market_cap_kb_adjustments.json`, `data/processed/market_cap/`에서 별도로 관리합니다. 웹서비스 배포에는 동기화된 사본만 포함합니다.
 
 ### 8.2 커밋 전 확인
 

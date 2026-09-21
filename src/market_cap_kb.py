@@ -26,6 +26,19 @@ KB_OUTPUT = OUTPUT / "kb"
 ADJUSTMENTS = ROOT / "config/market_cap_kb_adjustments.json"
 
 
+def resolve_adjustments(source: Path, release: Path, adjustments: Path | None = None) -> Path:
+    """Prefer the policy owned by area_master while retaining a migration fallback."""
+    candidates = ([adjustments] if adjustments is not None else []) + [
+        release / "market_cap_kb_adjustments.json",
+        source / "config/market_cap_kb_adjustments.json",
+        ADJUSTMENTS,
+    ]
+    for candidate in candidates:
+        if candidate is not None and candidate.is_file():
+            return candidate
+    raise FileNotFoundError("시가총액 보정 정책 파일을 찾을 수 없습니다")
+
+
 def adjusted_valuation(totals: pd.DataFrame, detail: pd.DataFrame, policy: dict):
     """Keep observed values intact; extrapolate only explicitly authorized complexes."""
     totals, detail = totals.copy(), detail.copy()
@@ -230,13 +243,21 @@ def estimate_kb(complexes: pd.DataFrame, detail: pd.DataFrame, status: pd.DataFr
     return totals.sort_values(["rank", "kapt_code"], na_position="last")
 
 
-def run(source: Path, release: Path | None = None, output: Path = KB_OUTPUT) -> dict:
+def run(
+    source: Path,
+    release: Path | None = None,
+    output: Path = KB_OUTPUT,
+    adjustments: Path | None = None,
+    transaction_master_output: Path | None = ROOT / "config/market_cap_area_master.csv",
+    producer: str = "busan_apartment_analysis",
+) -> dict:
     release = release or sorted((source / "data/releases").glob("area_master_*"))[-1]
+    adjustment_path = resolve_adjustments(source, release, adjustments)
     master_path = release / "market_cap_area_master.csv"
     raw_path = source / "data/raw/kb/kb_area_types.csv"
     status_path = release / "area_master_complex_status.csv"
     split_path = source / "data/qa/phase4_mixed_complex_audit.csv"
-    paths = [master_path, raw_path, status_path, split_path, release / "RELEASE_INFO.json", ADJUSTMENTS]
+    paths = [master_path, raw_path, status_path, split_path, release / "RELEASE_INFO.json", adjustment_path]
     types = read_master(master_path)
     complexes = load_complexes()
     merged = transaction_master(types)
@@ -256,12 +277,13 @@ def run(source: Path, release: Path | None = None, output: Path = KB_OUTPUT) -> 
         raise ValueError("배포 마스터와 단지 검수 상태 불일치")
     detail = link_prices(types, pd.read_csv(raw_path, dtype=str).fillna(""))
     totals = estimate_kb(complexes.loc[complexes.households.ge(500)], detail, status, splits)
-    policy = json.loads(ADJUSTMENTS.read_text(encoding="utf-8"))
+    policy = json.loads(adjustment_path.read_text(encoding="utf-8"))
     totals, detail = adjusted_valuation(totals, detail, policy)
     input_hash = file_hash(paths + [ROOT / "data/interim/kapt_clean.parquet", ROOT / "data/raw/kapt/busan_complexes.parquet"])
     rules_hash = file_hash([Path(__file__), Path(__file__).with_name("market_cap.py")])
     run_id = hashlib.sha256(f"{input_hash}:{rules_hash}".encode()).hexdigest()[:24]
     metadata = {"run_id": run_id, "input_hash": input_hash, "rules_hash": rules_hash,
+                "producer": producer, "snapshot_schema_version": 1,
                 "release": release.name, "executed_at": datetime.now(ZoneInfo("Asia/Seoul")).isoformat(),
                 "price_source": "kb_sale_general", "price_unit_original": "만원", "price_unit": "원",
                 "collection_start": detail.loc[detail.collected_at.ne(""), "collected_at"].min(),
@@ -271,6 +293,7 @@ def run(source: Path, release: Path | None = None, output: Path = KB_OUTPUT) -> 
                 "master_complexes": types.kapt_code.nunique(), "targets": len(totals),
                 "complete": int(totals.market_cap_krw.notna().sum()),
                 "adjusted_complete": int(totals.adjusted_market_cap_krw.notna().sum()),
+                "adjustment_policy_path": str(adjustment_path),
                 "adjustment_policy": policy,
                 "price_issues": detail.price_reason.value_counts().to_dict(),
                 "source_files": {str(p): file_hash([p]) for p in paths}}
@@ -282,6 +305,10 @@ def run(source: Path, release: Path | None = None, output: Path = KB_OUTPUT) -> 
         try:
             totals.to_parquet(staging / "complexes.parquet", index=False)
             detail.to_parquet(staging / "areas.parquet", index=False)
+            metadata["artifact_files"] = {
+                name: hashlib.sha256((staging / name).read_bytes()).hexdigest()
+                for name in ("complexes.parquet", "areas.parquet")
+            }
             (staging / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
             staging.rename(destination)
         finally:
@@ -291,7 +318,9 @@ def run(source: Path, release: Path | None = None, output: Path = KB_OUTPUT) -> 
     pointer = output / f".latest-{uuid4().hex}.json"
     pointer.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(pointer, output / "latest.json")
-    merged.to_csv(ROOT / "config/market_cap_area_master.csv", index=False, encoding="utf-8-sig")
+    if transaction_master_output is not None:
+        transaction_master_output.parent.mkdir(parents=True, exist_ok=True)
+        merged.to_csv(transaction_master_output, index=False, encoding="utf-8-sig")
     totals.to_csv(output / "summary.csv", index=False, encoding="utf-8-sig")
     print(json.dumps(metadata, ensure_ascii=True, indent=2))
     return metadata
@@ -301,5 +330,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=ROOT.parent / "area_master")
     parser.add_argument("--release", type=Path)
+    parser.add_argument("--output", type=Path, default=KB_OUTPUT)
+    parser.add_argument("--adjustments", type=Path)
+    parser.add_argument("--transaction-master-output", type=Path, default=ROOT / "config/market_cap_area_master.csv")
+    parser.add_argument("--producer", default="busan_apartment_analysis")
     args = parser.parse_args()
-    run(args.source, args.release)
+    run(args.source, args.release, args.output, args.adjustments, args.transaction_master_output, args.producer)

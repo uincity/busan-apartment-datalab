@@ -54,3 +54,40 @@ def test_overview_controls_rerender_without_duplicate_sidebar():
     app.sidebar.slider[0].set_value((1000, 2000)).run()
     assert not app.exception
     assert "1,000~2,000세대" in app.main.children[4].value
+
+
+def test_market_cap_starts_without_trade_update_status_section():
+    app = AppTest.from_file(str(APP_PATH), default_timeout=40).run()
+    next(button for button in app.sidebar.button if button.label == "아파트 시가총액").click().run()
+
+    assert not app.exception
+    assert [element.type for element in app.main.children.values()][:3] == [
+        "title", "caption", "subheader",
+    ]
+    assert "아파트 시가총액" in app.subheader[0].value
+    assert all("실거래 데이터 현황" not in item.value for item in app.subheader)
+
+
+def test_apartment_detail_shows_recent_sale_contracts_below_volume_chart():
+    app = AppTest.from_file(str(APP_PATH), default_timeout=40).run()
+    next(button for button in app.sidebar.button if button.label == "아파트 상세").click().run()
+
+    assert not app.exception
+    assert any(item.value == "**최근 매매 계약**" for item in app.markdown)
+    expected_columns = [
+        "계약일", "전용면적(㎡)", "층", "거래금액(억원)", "3.3㎡당 가격(만원)"
+    ]
+    assert any(frame.value.columns.tolist() == expected_columns for frame in app.dataframe)
+
+
+def test_transaction_top20_shows_recent_sale_contracts_at_bottom():
+    app = AppTest.from_file(str(APP_PATH), default_timeout=40).run()
+    next(button for button in app.sidebar.button if button.label == "거래량 TOP 20").click().run()
+
+    assert not app.exception
+    assert any("최근 매매 계약 거래내역" in item.value for item in app.subheader)
+    assert any(item.label == "TOP 20 단지 선택" for item in app.selectbox)
+    expected_columns = [
+        "계약일", "평형 그룹", "전용면적(㎡)", "층", "거래금액(억원)", "3.3㎡당 가격(만원)"
+    ]
+    assert any(frame.value.columns.tolist() == expected_columns for frame in app.dataframe)

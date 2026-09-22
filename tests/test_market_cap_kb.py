@@ -124,6 +124,10 @@ def test_kb_dashboard_and_empty_filters(tmp_path):
     app.run()
     assert not app.exception
     assert any("6,200" in item.value for item in app.metric)
+    ranking_columns = app.dataframe[0].value.columns.tolist()
+    assert ranking_columns[3:7] == [
+        "구군", "동", "추정 시가총액(억원)", "세대당 평균 추정가치(억원)"
+    ]
     app.selectbox(key="kb_adjustment_mode").set_value("KB 시세만").run()
     assert not app.exception
     assert any("6,200" in item.value for item in app.metric)

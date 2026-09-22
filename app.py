@@ -261,6 +261,85 @@ def load_complex_rents(rent_version: int, complex_id: str) -> pd.DataFrame:
     return pd.read_parquet(path, columns=columns, filters=[("internal_complex_id", "=", complex_id)])
 
 
+@st.cache_data(show_spinner="매매 실거래를 불러오고 있습니다...", max_entries=16)
+def load_complex_sales(trade_version: int, complex_id: str) -> pd.DataFrame:
+    _ = trade_version
+    path = ROOT / "data" / "interim" / "trade_matched.parquet"
+    columns = [
+        "internal_complex_id",
+        "year_month",
+        "deal_date",
+        "area_sqm",
+        "area_group",
+        "floor",
+        "deal_amount_krw",
+        "price_per_3_3sqm",
+        "is_cancelled",
+        "provisional",
+    ]
+    if not path.exists():
+        return pd.DataFrame(columns=columns)
+    return pd.read_parquet(path, columns=columns, filters=[("internal_complex_id", "=", complex_id)])
+
+
+def render_recent_sale_contracts(
+    complex_id: str,
+    *,
+    start_month: str,
+    end_month: str,
+    area_group: str | None = None,
+) -> None:
+    """선택 단지의 분석기간 내 취소되지 않은 최근 매매계약을 표시한다."""
+    trade_path = ROOT / "data" / "interim" / "trade_matched.parquet"
+    trade_version = trade_path.stat().st_mtime_ns if trade_path.exists() else 0
+    recent_sales = load_complex_sales(trade_version, str(complex_id))
+    if not recent_sales.empty:
+        mask = (
+            recent_sales["year_month"].astype(str).between(start_month, end_month)
+            & ~recent_sales["is_cancelled"].fillna(False).astype(bool)
+        )
+        if area_group is not None:
+            mask &= recent_sales["area_group"].astype(str).eq(area_group)
+        recent_sales = recent_sales[mask].copy()
+
+    if recent_sales.empty:
+        st.caption("선택한 단지와 조회기간에 표시할 개별 매매 계약이 없습니다.")
+        return
+
+    recent_sales["계약일"] = pd.to_datetime(recent_sales["deal_date"], errors="coerce")
+    recent_sales["전용면적(㎡)"] = pd.to_numeric(recent_sales["area_sqm"], errors="coerce")
+    recent_sales["층"] = pd.to_numeric(recent_sales["floor"], errors="coerce")
+    recent_sales["거래금액(억원)"] = (
+        pd.to_numeric(recent_sales["deal_amount_krw"], errors="coerce") / 100_000_000
+    )
+    recent_sales["3.3㎡당 가격(만원)"] = (
+        pd.to_numeric(recent_sales["price_per_3_3sqm"], errors="coerce") / 10_000
+    )
+    display_columns = ["계약일"]
+    if area_group is None:
+        recent_sales["평형 그룹"] = recent_sales["area_group"].map(
+            lambda value: AREA_GROUP_LABELS.get(str(value), str(value))
+        )
+        display_columns.append("평형 그룹")
+    display_columns.extend(["전용면적(㎡)", "층", "거래금액(억원)", "3.3㎡당 가격(만원)"])
+    display_sales = recent_sales.sort_values("계약일", ascending=False).head(50)[display_columns]
+
+    area_caption = AREA_GROUP_LABELS.get(area_group, area_group) if area_group else "전체 평형"
+    st.caption(f"{start_month} ~ {end_month} · {area_caption} · 최신 50건 이내")
+    st.dataframe(
+        display_sales,
+        hide_index=True,
+        width="stretch",
+        column_config={
+            "계약일": st.column_config.DateColumn(format="YYYY-MM-DD"),
+            "전용면적(㎡)": st.column_config.NumberColumn(format="%.1f"),
+            "층": st.column_config.NumberColumn(format="%.0f"),
+            "거래금액(억원)": st.column_config.NumberColumn(format="%.2f"),
+            "3.3㎡당 가격(만원)": st.column_config.NumberColumn(format="%.0f"),
+        },
+    )
+
+
 def load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
     """호환용 진입점. 큰 객체는 세션별 복사 없이 프로세스에서 공유한다."""
     return load_panel(), load_complexes()
@@ -698,6 +777,10 @@ def render_transaction_ranking(panel: pd.DataFrame, complexes: pd.DataFrame) -> 
         st.metric("대상 단지", f"{scoped_panel['internal_complex_id'].nunique():,}개", border=True)
         st.metric("최신 계약월", latest_month, border=True)
 
+    active_ranking = pd.DataFrame()
+    active_period_label = ""
+    active_window_start = ""
+    active_window_end = ""
     tabs = st.tabs(
         [label for label, _, _ in TRANSACTION_PERIODS],
         key="transaction_period_tabs",
@@ -713,6 +796,10 @@ def render_transaction_ranking(panel: pd.DataFrame, complexes: pd.DataFrame) -> 
                     dong=selected_dong,
                     complex_master=complexes,
                 )
+                active_ranking = ranking
+                active_period_label = period_label
+                active_window_start = ranking.attrs["window_start"]
+                active_window_end = ranking.attrs["window_end"]
                 st.caption(f"집계기간: {ranking.attrs['window_start']} ~ {ranking.attrs['window_end']}")
                 st.caption(
                     "막대 = 거래건수 · 점 = 세대수 대비 거래비율  |  "
@@ -783,6 +870,36 @@ def render_transaction_ranking(panel: pd.DataFrame, complexes: pd.DataFrame) -> 
     latest_rows = panel[panel["year_month"].eq(latest_month)]
     if latest_rows["provisional"].fillna(False).any():
         st.caption("※ 최신 계약월은 신고가 진행 중인 잠정 데이터이므로 거래량이 늘어날 수 있습니다.")
+
+    st.divider()
+    st.subheader(":material/receipt_long: 최근 매매 계약 거래내역")
+    if active_ranking.empty:
+        st.caption("선택한 지역과 기간에 조회할 TOP 20 단지가 없습니다.")
+        return
+
+    ranking_options = active_ranking.copy()
+    ranking_options["internal_complex_id"] = ranking_options["internal_complex_id"].astype(str)
+    ranking_lookup = ranking_options.set_index("internal_complex_id").to_dict("index")
+    selected_complex_id = st.selectbox(
+        "TOP 20 단지 선택",
+        ranking_options["internal_complex_id"].tolist(),
+        format_func=lambda complex_id: (
+            f"{ranking_lookup[complex_id]['rank']}위 · "
+            f"{ranking_lookup[complex_id]['complex_name']} · "
+            f"{ranking_lookup[complex_id]['sigungu']} {ranking_lookup[complex_id]['dong']}"
+        ),
+        key="transaction_top20_contract_complex",
+    )
+    selected_complex = ranking_lookup[selected_complex_id]
+    st.caption(
+        f"{active_period_label} 거래량 {selected_complex['transaction_count']:,}건 · "
+        "취소 거래 제외"
+    )
+    render_recent_sale_contracts(
+        selected_complex_id,
+        start_month=active_window_start,
+        end_month=active_window_end,
+    )
 
 
 def render_apartment_rankings(trades: pd.DataFrame, complexes: pd.DataFrame) -> None:
@@ -1102,7 +1219,7 @@ if not uses_global_filters:
     render_sidebar_update(update_summary)
 if menu == "부산 Overview":
     render_compact_update_status(update_summary, update_error)
-else:
+elif menu != "아파트 시가총액":
     render_update_status(update_summary, update_error)
 if menu == "아파트 시가총액":
     from src.market_cap_display import render_market_cap
@@ -1410,6 +1527,14 @@ elif menu == "아파트 상세":
         width="stretch",
     )
     st.plotly_chart(transaction_line(detail_panel, complex_id), width="stretch")
+    st.markdown("**최근 매매 계약**")
+    detail_months = detail_panel["year_month"].astype(str)
+    render_recent_sale_contracts(
+        str(complex_id),
+        start_month=detail_months.min(),
+        end_month=detail_months.max(),
+        area_group=detail_area_group,
+    )
     area_latest = (
         detail_panel.sort_values("year_month")
         .groupby("area_group", as_index=False, observed=True)

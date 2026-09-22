@@ -122,7 +122,7 @@ def render_kb_market_cap(output: Path):
     labels.update({"priced_households": "KB 가격 확보 세대수", "estimated_households": "보정 추정 세대수",
                    "price_method": "가격 산정 방법", "reference_area_group_ids": "보정 기준 평형",
                    "reference_unit_price_krw_sqm": "기준 전용㎡당 가격(원)"})
-    columns = ["rank", "district_rank", "complex_name", "sigungu", "dong", "households", "eligible_households", "priced_households", "valuation_scope", "cap_eok", "value_eok", "status"]
+    columns = ["rank", "district_rank", "complex_name", "sigungu", "dong", "cap_eok", "value_eok", "households", "eligible_households", "priced_households", "valuation_scope", "status"]
     if adjusted_mode:
         columns.append("estimated_households")
     if shown.empty:
@@ -256,7 +256,7 @@ def render_market_cap():
     for share in ("share_3m", "share_6m", "share_12m"):
         visible[share] = visible[share] * 100
     shown = visible if top == "전체" else visible.head(top)
-    columns = ["rank", "district_rank", "complex_name", "sigungu", "dong", "households", "priced_households", "cap_eok", "value_eok", "household_value_rank", "mom_eok", "mom_pct", "yoy_pct", "rank_change", "common_rank", "common_rank_change", "comparison_status", "grade", "share_3m", "share_6m", "share_12m", "change_flags"]
+    columns = ["rank", "district_rank", "complex_name", "sigungu", "dong", "cap_eok", "value_eok", "households", "priced_households", "household_value_rank", "mom_eok", "mom_pct", "yoy_pct", "rank_change", "common_rank", "common_rank_change", "comparison_status", "grade", "share_3m", "share_6m", "share_12m", "change_flags"]
     if shown.empty:
         st.info("현재 조건으로 전체 평형을 산정한 단지가 없습니다. 아래 보완 목록에서 누락 사유와 CSV 양식을 확인할 수 있습니다.")
     else:

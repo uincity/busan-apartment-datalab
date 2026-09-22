@@ -250,6 +250,10 @@ def test_populated_dashboard_and_empty_household_filter(tmp_path, monkeypatch):
     app.selectbox(key="cap_price_source").set_value("실거래 · 월별 추정").run()
     assert not app.exception
     assert any("6,200" in metric.value for metric in app.metric)
+    ranking_columns = app.dataframe[0].value.columns.tolist()
+    assert ranking_columns[3:7] == [
+        "구군", "동", "추정 시가총액(억원)", "세대당 평균 추정가치(억원)"
+    ]
     app.number_input(key="cap_minimum").set_value(10000).run()
     assert not app.exception
     assert any("해당하는 단지가 없습니다" in info.value for info in app.info)

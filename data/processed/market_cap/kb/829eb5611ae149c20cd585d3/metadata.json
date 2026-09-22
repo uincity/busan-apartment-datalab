@@ -1,23 +1,23 @@
 {
-  "run_id": "4af293c462b68d449b2adfce",
-  "input_hash": "029daefd70eed32d2b7aae3a1b4f7a45a4d8c97820ede218904f5d8a2b489994",
+  "run_id": "829eb5611ae149c20cd585d3",
+  "input_hash": "2925b988bf3b89212ab077edcc9886657580f5b6f10f3781d8a93f93f96bd480",
   "rules_hash": "02c1f7e8219873f46063af501fdd740eee7398a1ed95a9922529a5bdffb0883c",
   "producer": "area_master",
   "snapshot_schema_version": 1,
   "release": "area_master_20260918",
-  "executed_at": "2026-09-21T22:37:33.693468+09:00",
+  "executed_at": "2026-09-21T16:49:03.169884+09:00",
   "price_source": "kb_sale_general",
   "price_unit_original": "만원",
   "price_unit": "원",
   "collection_start": "2026-09-18T10:00:00",
   "collection_end": "2026-09-21T13:30:00.000000",
-  "missing_price_dates": 2937,
+  "missing_price_dates": 2943,
   "master_types": 3435,
   "transaction_area_groups": 3074,
   "master_complexes": 511,
   "targets": 560,
-  "complete": 393,
-  "adjusted_complete": 440,
+  "complete": 392,
+  "adjusted_complete": 427,
   "adjustment_policy_path": "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\config\\market_cap_kb_adjustments.json",
   "adjustment_policy": {
     "version": "approved-price-adjustments-v2",
@@ -153,8 +153,8 @@
         "scope": "분양 948세대 전수 산정 (임대 50세대 제외)"
       },
       "A10024953": {
-        "households": 1113,
-        "scope": "전체 주거 세대 (1,113세대 보정 산정)"
+        "households": 1053,
+        "scope": "분양 1,053세대 전수 산정 (임대 60세대 제외)"
       },
       "A10024341": {
         "households": 871,
@@ -350,98 +350,24 @@
         "households": 913,
         "scope": "전체 분양 주거용 세대",
         "reason": "최상층 펜트하우스 6세대(57~63평형) KB 미고시; 인접 대형 평형(49평) 단가 기반 정상 보정"
-      },
-      "A61381805": {
-        "name": "남천코오롱하늘채골든비치",
-        "households": 987,
-        "scope": "전체 주거 세대 (보정 산정)",
-        "reason": "최상층 펜트하우스 5세대(91~103평형) KB 미고시; 인접 대형 평형(63평) 단가 기반 정상 보정"
-      },
-      "A61175901": {
-        "name": "연산자이",
-        "households": 1598,
-        "scope": "전체 주거 세대 (보정 산정)",
-        "reason": "소수 평형 1세대 KB 미고시; 인접 평형 단가 기반 정상 보정"
-      },
-      "A60784207": {
-        "name": "온천동반도보라스카이뷰",
-        "households": 1149,
-        "scope": "전체 주거 세대 (보정 산정)",
-        "reason": "소수 평형 1세대 KB 미고시; 인접 평형 단가 기반 정상 보정"
-      },
-      "A10025950": {
-        "name": "거제센트럴자이",
-        "households": 878,
-        "scope": "전체 주거 세대 (보정 산정)",
-        "reason": "펜트하우스 7세대 KB 미고시; 인접 대형 평형 단가 기반 정상 보정"
-      },
-      "A10023781": {
-        "name": "힐스테이트 명륜 트라디움",
-        "households": 874,
-        "scope": "전체 주거 세대 (보정 산정)",
-        "reason": "소수 평형 8세대 KB 미고시; 인접 평형 단가 기반 정상 보정"
-      },
-      "A10024476": {
-        "name": "일광신도시 비스타동원2차아파트",
-        "households": 917,
-        "scope": "전체 주거 세대 (보정 산정)",
-        "reason": "펜트하우스 5세대 KB 미고시; 인접 평형 단가 기반 정상 보정"
-      },
-      "A10026391": {
-        "name": "W 아파트",
-        "households": 1488,
-        "scope": "전체 주거 세대 (보정 산정)",
-        "reason": "테라스/펜트하우스 미고시 세대; 인접 평형 단가 기반 정상 보정"
-      },
-      "A61202004": {
-        "name": "트럼프월드센텀",
-        "households": 564,
-        "scope": "전체 주거 세대 (보정 산정)",
-        "reason": "소수 평형 7세대 KB 미고시; 인접 평형 단가 기반 정상 보정"
-      },
-      "A61205003": {
-        "name": "더샵센텀스타",
-        "households": 629,
-        "scope": "전체 주거 세대 (보정 산정)",
-        "reason": "펜트하우스 6세대 KB 미고시; 인접 대형 평형 단가 기반 정상 보정"
-      },
-      "A60775306": {
-        "name": "동래럭키아파트",
-        "households": 1536,
-        "scope": "전체 주거 세대 (보정 산정)",
-        "reason": "공급면적 세분화에 따른 미매칭 세대; 인접 평형 단가 기반 정상 보정"
-      },
-      "A61476403": {
-        "name": "가야벽산아파트",
-        "households": 1772,
-        "scope": "전체 주거 세대 (보정 산정)",
-        "reason": "공급면적 세분화에 따른 미매칭 세대; 인접 평형 단가 기반 정상 보정"
-      },
-      "A10022002": {
-        "households": 4043,
-        "scope": "전체 주거 세대 (4,043세대 보정 산정)"
-      },
-      "A10026780": {
-        "households": 1938,
-        "scope": "전체 주거 세대 (1,938세대 보정 산정)"
       }
     }
   },
   "price_issues": {
-    "": 2956,
+    "": 2950,
     "KB 일반매매가 미확보": 272,
-    "KB 타입 연결 미확인": 207
+    "KB 타입 연결 미확인": 213
   },
   "source_files": {
     "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\data\\releases\\area_master_20260918\\market_cap_area_master.csv": "37d95c12fa3a7e4a3d299ad3e4af9b69f8a3b1bc0eaf3b225fdd13a8c3737cac",
-    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\data\\raw\\kb\\kb_area_types.csv": "80e19b7f731934802337d031f7d69bb3ad5461ca2c810be78a707d055066f770",
+    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\data\\raw\\kb\\kb_area_types.csv": "e798297aae5db909bdcd03a7b48b64a0bb0b9940e531181a579b440540f44822",
     "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\data\\releases\\area_master_20260918\\area_master_complex_status.csv": "2fbe1976f11439fd7814bf0e17f31d97827706a6ce15891e66224784bd162a65",
-    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\data\\qa\\phase4_mixed_complex_audit.csv": "2ebd7d4827e3faa046fb45854c93f06cf3e49778b0dd18d224b64acd4179a724",
+    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\data\\qa\\phase4_mixed_complex_audit.csv": "7a262c0805c603178cc79360577913f41c8bcd38b4d7138cdb777bba8e4351e1",
     "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\data\\releases\\area_master_20260918\\RELEASE_INFO.json": "1b6ae39eda223501c880d3c40d57ac1a374bf26727ec5019c1aef5c01fa1dcf0",
-    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\config\\market_cap_kb_adjustments.json": "a297be64daa87c6f12cbf6d7b34cb8217daa108647d7315ca4cfd65599ea6245"
+    "D:\\90.invest\\80.데이터수집\\아파트정보수집\\kapt\\area_master\\config\\market_cap_kb_adjustments.json": "0c57ef53810ca20b38f6530bce81752c52831b3d731a390de7a735ab593ef2da"
   },
   "artifact_files": {
-    "complexes.parquet": "52c4b41dfe72435da010ac18b5baebba87144d9d9853945f2fea9e1ad52ab80b",
-    "areas.parquet": "cda0346b6322fb60402cc0ba6777131d2b81ed0f5e22e32bb5a508e08ffa27bc"
+    "complexes.parquet": "8b5ecbb4c38c7c855f7c5cd7a441eeeda8a6782956ef86e302e77d49f6de8a88",
+    "areas.parquet": "09db07c65fa854a9eb9986aae29b3c8cf3ffa210f6f556a32ad23bc1462c0bc5"
   }
 }

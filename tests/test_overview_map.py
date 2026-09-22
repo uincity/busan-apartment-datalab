@@ -122,6 +122,28 @@ def test_school_gap_color_is_zero_centered_and_missing_is_faded():
     assert colors[3][3] == 105
 
 
+def test_focus_apartment_uses_normal_marker_style_and_display_name():
+    apartments = pd.DataFrame(
+        {
+            "internal_complex_id": ["A10026094", "A2"],
+            "complex_name": ["대연SKVIEWHills(2단지)", "다른 단지"],
+            "sigungu": ["남구", "남구"],
+            "dong": ["대연동", "대연동"],
+            "latitude": [35.13, 35.14],
+            "longitude": [129.09, 129.10],
+            "households": [100, 900],
+            "average_transaction_price": [500_000_000, 500_000_000],
+        }
+    )
+
+    deck = combined_pydeck_map(apartments, pd.DataFrame())
+    rows = {row["entity_id"]: row for row in deck.layers[0].data}
+
+    assert rows["A10026094"]["map_radius_px"] == pytest.approx(5.0)
+    assert rows["A10026094"]["map_color"] == rows["A2"]["map_color"]
+    assert rows["A10026094"]["display_name"] == "대연SKVIEWHills"
+
+
 def test_format_krw_uses_one_decimal_place():
     assert format_krw(125_000_000_000) == "1,250.0억원"
     assert format_krw(1_420_000_000_000) == "1.4조원"

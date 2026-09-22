@@ -45,6 +45,7 @@ from src.visualization import (
     DEFAULT_MAP_FOCUS_ID,
     DEFAULT_MAP_FOCUS_NAME,
     add_map_price_metrics,
+    apply_complex_display_names,
     apartment_ranking_bar,
     combined_pydeck_map,
     complex_price_line,
@@ -197,7 +198,8 @@ def load_panel() -> pd.DataFrame:
     panel_path = PROCESSED / "busan_apartment_monthly.parquet"
     if not panel_path.exists():
         return pd.DataFrame()
-    return _optimize_panel_dtypes(pd.read_parquet(panel_path, columns=PANEL_COLUMNS))
+    panel = pd.read_parquet(panel_path, columns=PANEL_COLUMNS)
+    return _optimize_panel_dtypes(apply_complex_display_names(panel))
 
 
 @st.cache_resource(show_spinner=False)
@@ -205,11 +207,11 @@ def load_complexes() -> pd.DataFrame:
     panel_path = PROCESSED / "busan_apartment_monthly.parquet"
     complex_path = PROCESSED / "busan_complex_summary.csv"
     if complex_path.exists():
-        return pd.read_csv(complex_path)
+        return apply_complex_display_names(pd.read_csv(complex_path))
     if not panel_path.exists():
         return pd.DataFrame()
     summary_source = pd.read_parquet(panel_path, columns=COMPLEX_SUMMARY_SOURCE_COLUMNS)
-    return build_complex_summary(summary_source)
+    return apply_complex_display_names(build_complex_summary(summary_source))
 
 
 @st.cache_data(show_spinner="Overview 지도 지표를 집계하고 있습니다...", max_entries=2)

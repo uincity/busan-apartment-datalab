@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+from typing import Callable
 from uuid import uuid4
 
 import numpy as np
@@ -36,6 +37,22 @@ TRANSACTION_MASTER_COLUMNS = {
     "verification_status", "scope",
 }
 
+Progress = Callable[[str], None]
+
+
+def _notify(progress: Progress | None, message: str) -> None:
+    if progress is not None:
+        progress(message)
+
+
+def _size_label(path: Path) -> str:
+    size = path.stat().st_size
+    if size < 1024:
+        return f"{size} B"
+    if size < 1024 ** 2:
+        return f"{size / 1024:.1f} KB"
+    return f"{size / 1024 ** 2:.1f} MB"
+
 
 def _hash(path: Path) -> str:
     digest = hashlib.sha256()
@@ -62,8 +79,12 @@ def _require_columns(frame: pd.DataFrame, required: set[str], label: str) -> Non
         raise ValueError(f"{label} 필수 컬럼 누락: {sorted(missing)}")
 
 
-def validate_release(source: Path) -> tuple[dict, Path, pd.DataFrame, pd.DataFrame]:
+def validate_release(
+    source: Path,
+    progress: Progress | None = None,
+) -> tuple[dict, Path, pd.DataFrame, pd.DataFrame]:
     pointer_path = source / "latest.json"
+    _notify(progress, f"[검증 중] {pointer_path}")
     if not pointer_path.is_file():
         raise FileNotFoundError(f"area_master 최신 포인터 없음: {pointer_path}")
     pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
@@ -75,6 +96,7 @@ def validate_release(source: Path) -> tuple[dict, Path, pd.DataFrame, pd.DataFra
     complexes_path = snapshot / "complexes.parquet"
     areas_path = snapshot / "areas.parquet"
     for path in (metadata_path, complexes_path, areas_path):
+        _notify(progress, f"[파일 확인] {path.name} ({_size_label(path) if path.is_file() else '없음'})")
         if not path.is_file():
             raise FileNotFoundError(f"area_master snapshot 파일 누락: {path}")
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
@@ -89,11 +111,17 @@ def validate_release(source: Path) -> tuple[dict, Path, pd.DataFrame, pd.DataFra
             raise ValueError(f"latest.json과 metadata.json의 {field} 불일치")
     artifacts = metadata.get("artifact_files", {})
     for name, path in (("complexes.parquet", complexes_path), ("areas.parquet", areas_path)):
+        _notify(progress, f"[해시 검증 중] {name} ({_size_label(path)})")
         expected = artifacts.get(name)
         if not expected or _hash(path) != expected:
             raise ValueError(f"area_master 산출물 해시 불일치: {name}")
+        _notify(progress, f"[해시 검증 완료] {name}")
+    _notify(progress, "[데이터 읽는 중] complexes.parquet")
     complexes = pd.read_parquet(complexes_path)
+    _notify(progress, "[데이터 읽기 완료] complexes.parquet")
+    _notify(progress, "[데이터 읽는 중] areas.parquet")
     areas = pd.read_parquet(areas_path)
+    _notify(progress, "[데이터 읽기 완료] areas.parquet")
     _require_columns(complexes, COMPLEX_COLUMNS, "complexes.parquet")
     _require_columns(areas, AREA_COLUMNS, "areas.parquet")
     if complexes.kapt_code.astype(str).duplicated().any():
@@ -109,6 +137,7 @@ def validate_release(source: Path) -> tuple[dict, Path, pd.DataFrame, pd.DataFra
         raise ValueError("metadata 대상 단지 수 불일치")
     if int(metadata.get("adjusted_complete", -1)) != int(complexes.adjusted_market_cap_krw.notna().sum()):
         raise ValueError("metadata 보정 산정 완료 건수 불일치")
+    _notify(progress, f"[원본 검증 완료] run_id={run_id}")
     return metadata, snapshot, complexes, areas
 
 
@@ -117,9 +146,13 @@ def sync_market_cap(
     destination: Path = DESTINATION_DEFAULT,
     transaction_master_source: Path = TRANSACTION_MASTER_SOURCE_DEFAULT,
     transaction_master_destination: Path = TRANSACTION_MASTER_DESTINATION_DEFAULT,
+    progress: Progress | None = None,
 ) -> dict:
-    metadata, source_snapshot, complexes, _ = validate_release(source)
+    _notify(progress, f"[동기화 시작] {source} -> {destination}")
+    metadata, source_snapshot, complexes, _ = validate_release(source, progress)
+    _notify(progress, f"[데이터 읽는 중] {transaction_master_source.name} ({_size_label(transaction_master_source)})")
     transaction_master = pd.read_csv(transaction_master_source)
+    _notify(progress, f"[데이터 읽기 완료] {transaction_master_source.name}")
     _require_columns(transaction_master, TRANSACTION_MASTER_COLUMNS, "market_cap_area_master.csv")
     if transaction_master[["kapt_code", "area_group_id"]].astype(str).duplicated().any():
         raise ValueError("실거래 시가총액 마스터 단지/평형 식별자 중복")
@@ -130,30 +163,59 @@ def sync_market_cap(
     if not destination_snapshot.exists():
         staging = destination / f".staging-{uuid4().hex}"
         try:
-            shutil.copytree(source_snapshot, staging)
+            snapshot_files = sorted(path for path in source_snapshot.rglob("*") if path.is_file())
+            staging.mkdir(parents=True)
+            for index, source_file in enumerate(snapshot_files, start=1):
+                relative = source_file.relative_to(source_snapshot)
+                destination_file = staging / relative
+                destination_file.parent.mkdir(parents=True, exist_ok=True)
+                _notify(
+                    progress,
+                    f"[snapshot 복사 중 {index}/{len(snapshot_files)}] {relative} ({_size_label(source_file)})",
+                )
+                shutil.copy2(source_file, destination_file)
+                _notify(progress, f"[snapshot 복사 완료 {index}/{len(snapshot_files)}] {relative}")
+            _notify(progress, f"[snapshot 게시 중] {destination_snapshot}")
             staging.rename(destination_snapshot)
+            _notify(progress, f"[snapshot 게시 완료] {destination_snapshot}")
         finally:
             if staging.exists():
                 shutil.rmtree(staging)
-    validate_release_snapshot = {
-        name: _hash(destination_snapshot / name)
-        for name in ("complexes.parquet", "areas.parquet")
-    }
+    else:
+        _notify(progress, f"[snapshot 복사 건너뜀] 이미 존재함: {destination_snapshot}")
+    validate_release_snapshot = {}
+    for name in ("complexes.parquet", "areas.parquet"):
+        _notify(progress, f"[복사본 해시 검증 중] {name}")
+        validate_release_snapshot[name] = _hash(destination_snapshot / name)
+        _notify(progress, f"[복사본 해시 검증 완료] {name}")
     if validate_release_snapshot != metadata["artifact_files"]:
         raise ValueError("복사된 시가총액 snapshot 해시 불일치")
 
     source_summary = source / "summary.csv"
     if source_summary.is_file():
+        _notify(progress, f"[데이터 읽는 중] summary.csv ({_size_label(source_summary)})")
         summary = pd.read_csv(source_summary)
         if len(summary) != len(complexes) or set(summary.kapt_code.astype(str)) != set(complexes.kapt_code.astype(str)):
             raise ValueError("summary.csv와 complexes.parquet 불일치")
+        _notify(progress, f"[파일 복사 중] summary.csv -> {destination / 'summary.csv'}")
         _atomic_copy(source_summary, destination / "summary.csv")
+        _notify(progress, "[파일 복사 완료] summary.csv")
     else:
+        _notify(progress, "[파일 생성 중] summary.csv")
         temporary_summary = destination / f".summary-{uuid4().hex}.csv"
         complexes.to_csv(temporary_summary, index=False, encoding="utf-8-sig")
         os.replace(temporary_summary, destination / "summary.csv")
+        _notify(progress, "[파일 생성 완료] summary.csv")
+    _notify(
+        progress,
+        f"[파일 복사 중] {transaction_master_source.name} -> {transaction_master_destination}",
+    )
     _atomic_copy(transaction_master_source, transaction_master_destination)
+    _notify(progress, f"[파일 복사 완료] {transaction_master_source.name}")
+    _notify(progress, f"[최신 포인터 교체 중] latest.json -> {destination / 'latest.json'}")
     _atomic_copy(source / "latest.json", destination / "latest.json")
+    _notify(progress, "[최신 포인터 교체 완료] latest.json")
+    _notify(progress, f"[동기화 완료] run_id={run_id}")
     return {
         "run_id": run_id,
         "release": metadata["release"],
@@ -175,5 +237,6 @@ if __name__ == "__main__":
         args.destination,
         args.transaction_master_source,
         args.transaction_master_destination,
+        progress=lambda message: print(message, flush=True),
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))

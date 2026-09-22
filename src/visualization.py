@@ -15,11 +15,8 @@ from .school_display import label_score
 
 
 DEFAULT_MAP_FOCUS_ID = "A10026094"
-DEFAULT_MAP_FOCUS_NAME = "대연SK뷰힐스아파트"
+DEFAULT_MAP_FOCUS_NAME = "대연SKVIEWHills"
 DEFAULT_MAP_ZOOM = 10
-MAP_FOCUS_SYMBOL = "building"
-MAP_FOCUS_SIZE = 28
-MAP_FOCUS_COLOR = "#1E3A5F"
 MAP_PRICE_COLUMN = "average_transaction_price"
 MAP_PRICE_BAND_COLUMN = "price_band"
 MAP_PRICE_BINS = [-float("inf"), 4, 5, 6, 7, 8, 9, 10, 11, 12, float("inf")]
@@ -66,6 +63,17 @@ DISTRICT_COLORS = {
     "사상구": "#7F8D68",
     "기장군": "#9A7B67",
 }
+
+
+def apply_complex_display_names(frame: pd.DataFrame) -> pd.DataFrame:
+    """원천 식별자는 유지하면서 화면에 표시할 단지명만 정규화한다."""
+    if not {"internal_complex_id", "complex_name"}.issubset(frame.columns):
+        return frame
+    result = frame.copy()
+    result["complex_name"] = result["complex_name"].astype("object")
+    focus = result["internal_complex_id"].astype(str).eq(DEFAULT_MAP_FOCUS_ID)
+    result.loc[focus, "complex_name"] = DEFAULT_MAP_FOCUS_NAME
+    return result
 
 
 def district_bar(df: pd.DataFrame, metric: str, title: str, y_label: str | None = None) -> go.Figure:
@@ -549,7 +557,7 @@ def classify_map_price_bands(price_eok: pd.Series) -> pd.Series:
 
 
 def complex_map(df: pd.DataFrame, focus_complex_id: str = DEFAULT_MAP_FOCUS_ID) -> go.Figure:
-    work = df.dropna(subset=["latitude", "longitude"]).copy()
+    work = apply_complex_display_names(df.dropna(subset=["latitude", "longitude"]))
     if work.empty:
         return go.Figure().update_layout(title="위치정보가 없습니다")
     work["households"] = pd.to_numeric(work["households"], errors="coerce").fillna(0).clip(lower=0)
@@ -596,7 +604,7 @@ def complex_map(df: pd.DataFrame, focus_complex_id: str = DEFAULT_MAP_FOCUS_ID) 
         MAP_PRICE_BAND_COLUMN: "가격 구간",
         "map_transaction_count": "조회기간 거래",
     }
-    normal = work.loc[~work.index.isin(focus.index)].copy()
+    normal = work.copy()
     priced = normal[normal[MAP_PRICE_COLUMN].notna()].copy()
     missing = normal[normal[MAP_PRICE_COLUMN].isna()].copy()
     max_households = float(work["households"].max()) if work["households"].notna().any() else 0
@@ -658,49 +666,6 @@ def complex_map(df: pd.DataFrame, focus_complex_id: str = DEFAULT_MAP_FOCUS_ID) 
                 "사용승인연도: %{customdata[4]}<br>조회기간 거래: %{customdata[5]:,.0f}건"
                 "<extra></extra>"
             ),
-            showlegend=False,
-        )
-    if not focus.empty:
-        focus_price = focus["average_transaction_price_eok"]
-        focus_approval = focus.get("approval_year", pd.Series("-", index=focus.index)).fillna("-")
-        focus_customdata = pd.DataFrame({
-            "internal_complex_id": focus["internal_complex_id"],
-            "sigungu": focus["sigungu"],
-            "dong": focus["dong"],
-            "average_transaction_price_eok": focus_price,
-            MAP_PRICE_BAND_COLUMN: focus[MAP_PRICE_BAND_COLUMN].astype("object"),
-            "households": focus["households"],
-            "approval_year": focus_approval,
-            "map_transaction_count": focus["map_transaction_count"],
-        }).to_numpy()
-        if not focus_price.isna().all():
-            focus_hovertemplate = (
-                "[기준 단지]<br><b>%{text}</b><br>%{customdata[1]} · %{customdata[2]}<br>"
-                "평균 실거래가: %{customdata[3]:.1f}억원<br>가격 구간: %{customdata[4]}<br>"
-                "세대수: %{customdata[5]:,.0f}세대<br>사용승인연도: %{customdata[6]}<br>"
-                "조회기간 거래: %{customdata[7]:,.0f}건<extra></extra>"
-            )
-        else:
-            focus_hovertemplate = (
-                "[기준 단지]<br><b>%{text}</b><br>%{customdata[1]} · %{customdata[2]}<br>"
-                "평균 실거래가: 최근 실거래 없음<br>세대수: %{customdata[5]:,.0f}세대<br>"
-                "사용승인연도: %{customdata[6]}<br>조회기간 거래: %{customdata[7]:,.0f}건"
-                "<extra></extra>"
-            )
-        fig.add_scattermap(
-            lat=focus["latitude"],
-            lon=focus["longitude"],
-            mode="markers",
-            marker={
-                "symbol": MAP_FOCUS_SYMBOL,
-                "size": MAP_FOCUS_SIZE,
-                "color": MAP_FOCUS_COLOR,
-                "opacity": 1.0,
-            },
-            name="기준 단지",
-            text=focus["complex_name"],
-            customdata=focus_customdata,
-            hovertemplate=focus_hovertemplate,
             showlegend=False,
         )
     fig.update_layout(
@@ -775,7 +740,7 @@ def combined_pydeck_map(
     layers: list[pdk.Layer] = []
     center_frames: list[pd.DataFrame] = []
     if not apartments.empty:
-        work = apartments.dropna(subset=["latitude", "longitude"]).copy()
+        work = apply_complex_display_names(apartments.dropna(subset=["latitude", "longitude"]))
         work["average_transaction_price_eok"] = pd.to_numeric(work.get(MAP_PRICE_COLUMN), errors="coerce") / 100_000_000
         work[MAP_PRICE_BAND_COLUMN] = classify_map_price_bands(work["average_transaction_price_eok"]).astype("object")
         color_column = COLOR_MODE_COLUMNS.get(marker_color_mode, MAP_PRICE_COLUMN)
@@ -813,12 +778,6 @@ def combined_pydeck_map(
             ),
             axis=1,
         )
-        focus = work["entity_id"].eq(str(focus_complex_id))
-        if focus.any():
-            work.loc[focus, "map_color"] = pd.Series(
-                [_hex_rgb(MAP_FOCUS_COLOR, 255)] * int(focus.sum()), index=work.index[focus], dtype="object"
-            )
-        work.loc[focus, "map_radius_px"] = work.loc[focus, "map_radius_px"].clip(lower=22.0)
         layers.append(pdk.Layer(
             "ScatterplotLayer", work, id="apartments", get_position="[longitude, latitude]",
             get_fill_color="map_color", get_radius="map_radius_px", radius_units=String("pixels"),

@@ -144,6 +144,12 @@ def estimate_month(complexes: pd.DataFrame, master: pd.DataFrame, trades: pd.Dat
     detail, totals = [], []
     end = pd.Period(month, "M").end_time
     approved_codes = set(rules.get("approved_multi_complexes", []))
+    adj_file = Path(__file__).resolve().parents[1] / "config" / "market_cap_kb_adjustments.json"
+    if adj_file.exists():
+        try:
+            approved_codes |= set(json.loads(adj_file.read_text(encoding="utf-8")).get("complexes", {}).keys())
+        except Exception:
+            pass
     minimum_extrapolation_coverage = float(rules.get("minimum_extrapolation_coverage", 1.0))
     for _, c in complexes.iterrows():
         rows = groups.get(c.kapt_code, active.iloc[0:0])

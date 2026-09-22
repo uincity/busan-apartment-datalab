@@ -3,9 +3,6 @@ import pytest
 
 from src.visualization import (
     DEFAULT_MAP_ZOOM,
-    MAP_FOCUS_COLOR,
-    MAP_FOCUS_SIZE,
-    MAP_FOCUS_SYMBOL,
     MAP_PRICE_BANDS,
     MAP_PRICE_COLORS,
     MAP_PRICE_COLUMN,
@@ -35,23 +32,24 @@ def test_complex_map_focuses_on_daeyeon_sk_view_hills():
     assert DEFAULT_MAP_ZOOM == 10
     assert figure.layout.map.zoom == DEFAULT_MAP_ZOOM
     assert figure.layout.clickmode == "event+select"
-    assert figure.data[-1].name == "기준 단지"
-    assert figure.data[-1].type == "scattermap"
-    assert figure.data[-1].marker.symbol == MAP_FOCUS_SYMBOL
-    assert figure.data[-1].marker.size == MAP_FOCUS_SIZE
-    assert figure.data[-1].marker.color == MAP_FOCUS_COLOR
-    assert figure.data[-1].customdata[0][0] == "A10026094"
-    assert "[기준 단지]" in figure.data[-1].hovertemplate
-    normal_ids = {
+    assert all(trace.name != "기준 단지" for trace in figure.data)
+    marker_ids = {
         str(row[0])
-        for trace in figure.data[:-1]
+        for trace in figure.data
         for row in (trace.customdata if trace.customdata is not None else [])
     }
-    assert "A10026094" not in normal_ids
-    assert all(trace.marker.symbol == "circle" for trace in figure.data[:-1])
+    assert marker_ids == {"A10026094", "A2"}
+    assert all(trace.marker.symbol == "circle" for trace in figure.data)
+    displayed_names = [
+        str(name)
+        for trace in figure.data
+        for name in (trace.text if trace.text is not None else [])
+    ]
+    assert "대연SKVIEWHills" in displayed_names
+    assert all("(2단지)" not in name for name in displayed_names)
 
 
-def test_complex_map_moves_single_focus_marker_when_focus_changes():
+def test_complex_map_moves_center_without_special_focus_marker():
     complexes = pd.DataFrame(
         {
             "internal_complex_id": ["A1", "A2"],
@@ -69,12 +67,10 @@ def test_complex_map_moves_single_focus_marker_when_focus_changes():
     first = complex_map(complexes, focus_complex_id="A1")
     second = complex_map(complexes, focus_complex_id="A2")
 
-    assert sum(trace.name == "기준 단지" for trace in first.data) == 1
-    assert sum(trace.name == "기준 단지" for trace in second.data) == 1
-    assert first.data[-1].customdata[0][0] == "A1"
-    assert second.data[-1].customdata[0][0] == "A2"
-    assert first.data[-1].lat[0] == 35.10
-    assert second.data[-1].lat[0] == 35.20
+    assert all(trace.name != "기준 단지" for trace in first.data)
+    assert all(trace.name != "기준 단지" for trace in second.data)
+    assert first.layout.map.center.lat == 35.10
+    assert second.layout.map.center.lat == 35.20
 
 
 def test_add_map_price_metrics_calculates_transaction_weighted_average():

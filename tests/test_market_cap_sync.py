@@ -62,6 +62,28 @@ def test_syncs_validated_immutable_snapshot_and_pointer(tmp_path):
     assert pd.read_csv(master_destination).iloc[0].kapt_code == "K1"
 
 
+def test_reports_file_progress_when_callback_is_provided(tmp_path):
+    source, master_source = fixture(tmp_path)
+    destination = tmp_path / "service" / "kb"
+    messages = []
+
+    sync_market_cap(
+        source,
+        destination,
+        master_source,
+        tmp_path / "service" / "market_cap_area_master.csv",
+        progress=messages.append,
+    )
+
+    output = "\n".join(messages)
+    assert "[해시 검증 중] complexes.parquet" in output
+    assert "[snapshot 복사 중" in output
+    assert "areas.parquet" in output
+    assert "[파일 복사 완료] summary.csv" in output
+    assert "[파일 복사 완료] market_cap_area_master.csv" in output
+    assert "[동기화 완료] run_id=run-1" in output
+
+
 def test_rejects_tampered_snapshot_before_sync(tmp_path):
     source, _ = fixture(tmp_path)
     frame = pd.read_parquet(source / "run-1" / "complexes.parquet")

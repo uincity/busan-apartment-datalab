@@ -30,7 +30,7 @@ from src.overview_map import (
     build_overview_metrics,
     format_krw,
     load_overview_metric_sources,
-    size_legend_values,
+    size_legend_html,
 )
 from src.recent_price_search import build_recent_price_summary, filter_recent_price_summary
 from src.regions import REGION_SCOPE_OPTIONS, scope_mask
@@ -1526,17 +1526,15 @@ if menu == "부산 Overview":
             selection_mode="single-object",
         )
         st.caption(f"크기: {marker_size_mode} · 색상: {marker_color_mode}")
-        legend_values = size_legend_values(map_complexes[SIZE_MODE_COLUMNS[marker_size_mode]])
-        if legend_values is None:
+        legend_html = size_legend_html(
+            map_complexes[SIZE_MODE_COLUMNS[marker_size_mode]],
+            marker_size_mode,
+        )
+        if legend_html is None:
             st.caption("마커 크기: 자료가 없는 단지는 최소 크기로 표시")
         else:
             st.caption(f"마커 크기 · {marker_size_mode}")
-            legend_formatter = (
-                (lambda value: f"{value:,.0f}세대") if marker_size_mode == "세대수" else format_krw
-            )
-            with st.container(horizontal=True, gap="small"):
-                for symbol, value, label in zip(("○", "◯", "●"), legend_values, ("25%", "중앙", "75%"), strict=True):
-                    st.caption(f"{symbol} {legend_formatter(value)}  ·  {label}")
+            st.html(legend_html)
         with st.popover("ⓘ 지도 읽는 법"):
             st.markdown("**아파트** · 원의 크기는 선택한 규모, 색상은 선택한 가격/분석 지표입니다. 마커를 클릭하면 단지 상세로 이동합니다.")
             st.markdown("**크기 기준** · 세대수는 물리적 규모, 시가총액은 자산가치, 최근 12개월 거래금액은 시장 유동성을 나타냅니다.")

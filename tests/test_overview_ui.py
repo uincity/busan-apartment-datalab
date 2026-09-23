@@ -102,13 +102,14 @@ def test_satellite_liquidity_marker_uses_metropolitan_transactions():
             caption.value == "크기: 최근 12개월 거래금액 · 색상: 가격"
             for caption in app.main.caption
         )
-        liquidity_legend = [
-            caption.value
-            for caption in app.main.caption
-            if "억원" in caption.value and any(symbol in caption.value for symbol in ("○", "◯", "●"))
+        marker_legends = [
+            element.body
+            for element in app.main.get("html")
+            if "marker-size-legend" in element.body
         ]
-        assert liquidity_legend
-        assert any("0.0억원" not in value for value in liquidity_legend)
+        assert len(marker_legends) == 1
+        assert marker_legends[0].count("data-radius-px=") == 3
+        assert "억원" in marker_legends[0]
 
 
 def test_market_cap_starts_without_trade_update_status_section():

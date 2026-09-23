@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+from html import escape
 from pathlib import Path
 
 import pandas as pd
@@ -19,6 +20,59 @@ COLOR_MODE_COLUMNS = {
 }
 
 
+def _scale_marker_values(
+    reference: pd.Series,
+    values: pd.Series,
+    min_size: float = 5.0,
+    max_size: float = 26.0,
+    method: str = "sqrt",
+    lower_quantile: float = 0.02,
+    upper_quantile: float = 0.98,
+) -> pd.Series:
+    if method not in {"sqrt", "log1p"}:
+        raise ValueError("method must be 'sqrt' or 'log1p'")
+    if min_size > max_size:
+        raise ValueError("min_size must not exceed max_size")
+
+    reference_numeric = pd.to_numeric(reference, errors="coerce").astype("float64")
+    reference_numeric = reference_numeric.where(
+        reference_numeric.map(math.isfinite) & reference_numeric.ge(0)
+    )
+    reference_valid = reference_numeric.dropna()
+    target_numeric = pd.to_numeric(values, errors="coerce").astype("float64")
+    target_numeric = target_numeric.where(target_numeric.map(math.isfinite) & target_numeric.ge(0))
+    target_valid = target_numeric.dropna()
+    result = pd.Series(float(min_size), index=values.index, dtype="float64")
+    if reference_valid.empty or target_valid.empty:
+        return result
+
+    lower = float(reference_valid.min())
+    upper = float(reference_valid.max())
+    if len(reference_valid) >= 10 and reference_valid.nunique() > 1:
+        lower = float(reference_valid.quantile(lower_quantile))
+        upper = float(reference_valid.quantile(upper_quantile))
+    reference_clipped = reference_valid.clip(lower=lower, upper=upper)
+
+    transformed_reference = (
+        reference_clipped.pow(0.5)
+        if method == "sqrt"
+        else reference_clipped.map(math.log1p)
+    )
+    low = float(transformed_reference.min())
+    high = float(transformed_reference.max())
+    if math.isclose(low, high):
+        result.loc[target_valid.index] = min_size
+        return result
+    target_clipped = target_valid.clip(lower=lower, upper=upper)
+    transformed_target = (
+        target_clipped.pow(0.5) if method == "sqrt" else target_clipped.map(math.log1p)
+    )
+    result.loc[target_valid.index] = (
+        min_size + (max_size - min_size) * (transformed_target - low) / (high - low)
+    )
+    return result.clip(lower=min_size, upper=max_size)
+
+
 def scale_marker_size(
     series: pd.Series,
     min_size: float = 5.0,
@@ -27,33 +81,16 @@ def scale_marker_size(
     lower_quantile: float = 0.02,
     upper_quantile: float = 0.98,
 ) -> pd.Series:
-    """수치 지표를 결측에 안전한 고정 픽셀 범위로 변환한다."""
-    if method not in {"sqrt", "log1p"}:
-        raise ValueError("method must be 'sqrt' or 'log1p'")
-    if min_size > max_size:
-        raise ValueError("min_size must not exceed max_size")
-
-    numeric = pd.to_numeric(series, errors="coerce").astype("float64")
-    numeric = numeric.where(numeric.map(math.isfinite) & numeric.ge(0))
-    valid = numeric.dropna()
-    result = pd.Series(float(min_size), index=series.index, dtype="float64")
-    if valid.empty:
-        return result
-
-    clipped = valid.copy()
-    if len(valid) >= 10 and valid.nunique() > 1:
-        lower = float(valid.quantile(lower_quantile))
-        upper = float(valid.quantile(upper_quantile))
-        clipped = valid.clip(lower=lower, upper=upper)
-
-    transformed = clipped.pow(0.5) if method == "sqrt" else clipped.map(math.log1p)
-    low = float(transformed.min())
-    high = float(transformed.max())
-    if math.isclose(low, high):
-        result.loc[valid.index] = min_size
-        return result
-    result.loc[valid.index] = min_size + (max_size - min_size) * (transformed - low) / (high - low)
-    return result.clip(lower=min_size, upper=max_size)
+    """수치 지표를 결측에 안전한 고정 픽셀 반지름 범위로 변환한다."""
+    return _scale_marker_values(
+        series,
+        series,
+        min_size=min_size,
+        max_size=max_size,
+        method=method,
+        lower_quantile=lower_quantile,
+        upper_quantile=upper_quantile,
+    )
 
 
 def format_krw(value: float | int | None) -> str:
@@ -192,6 +229,82 @@ def size_legend_text(values: pd.Series, mode: str) -> str:
     q25, q50, q75 = quantiles
     formatter = (lambda value: f"{value:,.0f}세대") if mode == "세대수" else format_krw
     return f"크기 범례(25% · 중앙 · 75%): {formatter(q25)} · {formatter(q50)} · {formatter(q75)}"
+
+
+def size_legend_entries(values: pd.Series) -> tuple[tuple[float, float], ...] | None:
+    """분위값과 지도에서 해당 값에 적용되는 실제 픽셀 반지름을 반환한다."""
+    quantiles = size_legend_values(values)
+    if quantiles is None:
+        return None
+    quantile_series = pd.Series(quantiles, dtype="float64")
+    radii = _scale_marker_values(values, quantile_series)
+    return tuple(
+        (float(value), float(radius))
+        for value, radius in zip(quantiles, radii.tolist(), strict=True)
+    )
+
+
+def size_legend_html(values: pd.Series, mode: str) -> str | None:
+    """지도 마커와 같은 픽셀 크기의 원을 사용하는 반응형 범례 HTML을 만든다."""
+    entries = size_legend_entries(values)
+    if entries is None:
+        return None
+    formatter = (lambda value: f"{value:,.0f}세대") if mode == "세대수" else format_krw
+    labels = ("25%", "중앙", "75%")
+    items = []
+    for (value, radius), label in zip(entries, labels, strict=True):
+        diameter = radius * 2
+        text = escape(f"{formatter(value)} · {label}")
+        items.append(
+            '<div class="map-size-legend__item">'
+            f'<span class="map-size-legend__circle" data-radius-px="{radius:.2f}" '
+            f'style="width:{diameter:.2f}px;height:{diameter:.2f}px"></span>'
+            f'<span class="map-size-legend__text">{text}</span>'
+            "</div>"
+        )
+    return """
+    <style>
+    .map-size-legend {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        align-items: center;
+        min-height: 56px;
+        margin: -0.25rem 0 0.35rem;
+    }
+    .map-size-legend__item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        min-width: 0;
+    }
+    .map-size-legend__item:nth-child(2) { justify-content: center; }
+    .map-size-legend__item:nth-child(3) { justify-content: flex-end; }
+    .map-size-legend__circle {
+        display: inline-block;
+        flex: 0 0 auto;
+        box-sizing: border-box;
+        border: 1px solid rgba(71, 85, 105, 0.9);
+        border-radius: 50%;
+        background: rgba(100, 116, 139, 0.42);
+    }
+    .map-size-legend__text {
+        color: inherit;
+        font-size: 0.8rem;
+        opacity: 0.72;
+        white-space: nowrap;
+    }
+    @media (max-width: 640px) {
+        .map-size-legend {
+            grid-template-columns: 1fr;
+            gap: 0.4rem;
+        }
+        .map-size-legend__item,
+        .map-size-legend__item:nth-child(2),
+        .map-size-legend__item:nth-child(3) { justify-content: flex-start; }
+    }
+    </style>
+    <div class="map-size-legend" data-testid="marker-size-legend">
+    """ + "".join(items) + "</div>"
 
 
 def size_legend_values(values: pd.Series) -> tuple[float, float, float] | None:

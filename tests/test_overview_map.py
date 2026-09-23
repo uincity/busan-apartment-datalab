@@ -8,6 +8,8 @@ from src.overview_map import (
     format_krw,
     load_overview_metric_sources,
     scale_marker_size,
+    size_legend_entries,
+    size_legend_html,
 )
 from src.visualization import combined_pydeck_map
 
@@ -26,6 +28,26 @@ def test_scale_marker_size_handles_missing_negative_equal_and_small_samples():
     assert sizes.tolist() == [5.0, 5.0, 5.0, 5.0, 5.0]
     small = scale_marker_size(pd.Series([0, 25, 100]))
     assert small.tolist() == pytest.approx([5.0, 15.5, 26.0])
+
+
+def test_size_legend_uses_the_same_pixel_radius_as_map_markers():
+    values = pd.Series([0.0, 25.0, 100.0])
+    entries = size_legend_entries(values)
+
+    assert entries is not None
+    legend_values, legend_radii = zip(*entries, strict=True)
+    assert legend_values == pytest.approx([12.5, 25.0, 62.5])
+    assert legend_radii == pytest.approx([
+        5 + 21 * (12.5 ** 0.5) / 10,
+        15.5,
+        5 + 21 * (62.5 ** 0.5) / 10,
+    ])
+
+    html = size_legend_html(values, "세대수")
+    assert html is not None
+    for _, radius in entries:
+        assert f'data-radius-px="{radius:.2f}"' in html
+        assert f'width:{radius * 2:.2f}px;height:{radius * 2:.2f}px' in html
 
 
 def test_overview_metrics_uses_adjusted_cap_and_latest_date_12m_window():

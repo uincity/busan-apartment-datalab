@@ -3,7 +3,12 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from src.overview_map import build_overview_metrics, format_krw, scale_marker_size
+from src.overview_map import (
+    build_overview_metrics,
+    format_krw,
+    load_overview_metric_sources,
+    scale_marker_size,
+)
 from src.visualization import combined_pydeck_map
 
 
@@ -59,6 +64,27 @@ def test_missing_trade_source_is_not_mistaken_for_zero_transactions():
     assert pd.isna(result.loc[0, "transaction_count_12m"])
     assert pd.isna(result.loc[0, "transaction_value_12m"])
     assert pd.isna(result.loc[0, "market_cap_krw"])
+
+
+def test_overview_metric_sources_prefers_metropolitan_transactions(tmp_path):
+    interim = tmp_path / "data" / "interim"
+    interim.mkdir(parents=True)
+    columns = ["internal_complex_id", "deal_date", "deal_amount_krw", "is_cancelled"]
+    pd.DataFrame(
+        [["BUSAN", "2026-09-01", 100_000_000, False]],
+        columns=columns,
+    ).to_parquet(interim / "trade_matched.parquet", index=False)
+    pd.DataFrame(
+        [
+            ["YANGSAN", "2026-09-02", 200_000_000, False],
+            ["GIMHAE", "2026-09-03", 300_000_000, False],
+        ],
+        columns=columns,
+    ).to_parquet(interim / "transactions_master.parquet", index=False)
+
+    trades, _, _ = load_overview_metric_sources(tmp_path, 1, 0, 0)
+
+    assert trades["internal_complex_id"].tolist() == ["YANGSAN", "GIMHAE"]
 
 
 @pytest.mark.parametrize(

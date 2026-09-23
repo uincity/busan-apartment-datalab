@@ -157,7 +157,9 @@ def load_overview_metric_sources(
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """mtime 인수로 외부 캐시를 무효화할 수 있게 지도 원천만 읽는다."""
     _ = trade_version, market_cap_version, school_value_version
-    trade_path = root / "data" / "interim" / "trade_matched.parquet"
+    metropolitan_trade_path = root / "data" / "interim" / "transactions_master.parquet"
+    busan_trade_path = root / "data" / "interim" / "trade_matched.parquet"
+    trade_path = metropolitan_trade_path if metropolitan_trade_path.is_file() else busan_trade_path
     trade_columns = ["internal_complex_id", "deal_date", "deal_amount_krw", "is_cancelled"]
     trades = pd.read_parquet(trade_path, columns=trade_columns) if trade_path.is_file() else pd.DataFrame(columns=trade_columns)
 

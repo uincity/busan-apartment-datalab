@@ -1424,7 +1424,13 @@ if menu == "부산 Overview":
     if st.session_state.get("filter_dongs"):
         region_label += f" · 법정동 {len(st.session_state['filter_dongs'])}곳"
     st.caption(f"{household_label}  ·  {approval_label}  ·  {region_label}")
-    overview_trade_path = ROOT / "data" / "interim" / "trade_matched.parquet"
+    overview_metropolitan_trade_path = ROOT / "data" / "interim" / "transactions_master.parquet"
+    overview_busan_trade_path = ROOT / "data" / "interim" / "trade_matched.parquet"
+    overview_trade_path = (
+        overview_metropolitan_trade_path
+        if overview_metropolitan_trade_path.is_file()
+        else overview_busan_trade_path
+    )
     overview_cap_pointer = PROCESSED / "market_cap" / "kb" / "latest.json"
     overview_school_value_path = ROOT / "phase149_school_value_master.xlsx"
     overview_metrics = load_overview_map_metrics(

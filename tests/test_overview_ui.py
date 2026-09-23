@@ -85,6 +85,32 @@ def test_satellite_scope_includes_trade_only_complexes_by_default():
     assert trade_only_toggle.value is True
 
 
+def test_satellite_liquidity_marker_uses_metropolitan_transactions():
+    app = AppTest.from_file(str(APP_PATH), default_timeout=40).run()
+
+    for region_name in ["양산", "김해"]:
+        region = next(widget for widget in app.sidebar.selectbox if widget.label == "지역")
+        region.set_value(region_name).run()
+        marker_size = next(
+            widget for widget in app.segmented_control if widget.label == "마커 크기"
+        )
+        marker_size.set_value("최근 12개월 거래금액").run()
+
+        assert not app.exception
+        assert marker_size.value == "최근 12개월 거래금액"
+        assert any(
+            caption.value == "크기: 최근 12개월 거래금액 · 색상: 가격"
+            for caption in app.main.caption
+        )
+        liquidity_legend = [
+            caption.value
+            for caption in app.main.caption
+            if "억원" in caption.value and any(symbol in caption.value for symbol in ("○", "◯", "●"))
+        ]
+        assert liquidity_legend
+        assert any("0.0억원" not in value for value in liquidity_legend)
+
+
 def test_market_cap_starts_without_trade_update_status_section():
     app = AppTest.from_file(str(APP_PATH), default_timeout=40).run()
     next(button for button in app.sidebar.button if button.label == "아파트 시가총액").click().run()

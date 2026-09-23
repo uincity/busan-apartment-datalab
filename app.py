@@ -23,6 +23,7 @@ from src.dashboard_state import (
     selected_pydeck_entity,
 )
 from src.data_update_status import SUMMARY_PATH, load_dashboard_summary
+from src.deployment_data import ParquetSchemaError, read_parquet_columns, validate_parquet_columns
 from src.double_click_table import double_click_table
 from src.overview_map import (
     SIZE_MODE_COLUMNS,
@@ -188,8 +189,30 @@ def _optimize_panel_dtypes(panel: pd.DataFrame) -> pd.DataFrame:
     return panel
 
 
+def _validate_app_parquet(path: Path, columns: list[str]) -> None:
+    """배포 데이터 불일치를 사용자가 조치할 수 있는 화면 오류로 변환한다."""
+    try:
+        validate_parquet_columns(path, columns)
+    except ParquetSchemaError as exc:
+        st.error("배포 데이터가 현재 앱의 데이터 구조와 맞지 않습니다.", icon=":material/database_off:")
+        st.code(str(exc))
+        st.caption("광역권 데이터 빌드 산출물을 Git에 포함한 뒤 Streamlit 앱을 다시 배포해 주세요.")
+        st.stop()
+
+
+def _read_app_parquet(path: Path, columns: list[str], **kwargs: object) -> pd.DataFrame:
+    try:
+        return read_parquet_columns(path, columns, **kwargs)
+    except ParquetSchemaError as exc:
+        st.error("배포 데이터가 현재 앱의 데이터 구조와 맞지 않습니다.", icon=":material/database_off:")
+        st.code(str(exc))
+        st.caption("광역권 데이터 빌드 산출물을 Git에 포함한 뒤 Streamlit 앱을 다시 배포해 주세요.")
+        st.stop()
+
+
 def _latest_parquet_month(path: Path, column: str = "year_month") -> str | None:
     """전체 파일을 DataFrame으로 읽지 않고 Parquet 통계에서 최신 월을 찾는다."""
+    _validate_app_parquet(path, [column])
     parquet_file = pq.ParquetFile(path)
     column_index = parquet_file.schema_arrow.names.index(column)
     maximums: list[str] = []
@@ -203,7 +226,7 @@ def _latest_parquet_month(path: Path, column: str = "year_month") -> str | None:
     if maximums:
         return max(maximums)
 
-    months = pd.read_parquet(path, columns=[column])[column]
+    months = _read_app_parquet(path, [column])[column]
     return None if months.empty else str(months.max())
 
 
@@ -213,9 +236,9 @@ def _read_recent_trades(path: Path, columns: list[str], months: int) -> pd.DataF
         return pd.DataFrame(columns=columns)
     latest_period = pd.Period(latest_month, freq="M")
     start_month = str(latest_period - (months - 1))
-    return pd.read_parquet(
+    return _read_app_parquet(
         path,
-        columns=columns,
+        columns,
         filters=[("year_month", ">=", start_month), ("year_month", "<=", str(latest_period))],
     )
 
@@ -226,7 +249,7 @@ def load_panel() -> pd.DataFrame:
     panel_path = master_path if master_path.exists() else PROCESSED / "busan_apartment_monthly.parquet"
     if not panel_path.exists():
         return pd.DataFrame()
-    panel = pd.read_parquet(panel_path, columns=PANEL_COLUMNS)
+    panel = _read_app_parquet(panel_path, PANEL_COLUMNS)
     return _optimize_panel_dtypes(apply_complex_display_names(panel))
 
 
@@ -240,7 +263,7 @@ def load_complexes() -> pd.DataFrame:
         return apply_complex_display_names(pd.read_csv(complex_path))
     if not panel_path.exists():
         return pd.DataFrame()
-    summary_source = pd.read_parquet(panel_path, columns=COMPLEX_SUMMARY_SOURCE_COLUMNS)
+    summary_source = _read_app_parquet(panel_path, COMPLEX_SUMMARY_SOURCE_COLUMNS)
     return apply_complex_display_names(build_complex_summary(summary_source))
 
 
@@ -266,7 +289,7 @@ def load_rent_panel() -> pd.DataFrame:
     path = metropolitan_path if metropolitan_path.exists() else PROCESSED / "busan_apartment_rent_monthly.parquet"
     if not path.exists():
         return pd.DataFrame(columns=RENT_PANEL_COLUMNS)
-    return _optimize_panel_dtypes(pd.read_parquet(path, columns=RENT_PANEL_COLUMNS))
+    return _optimize_panel_dtypes(_read_app_parquet(path, RENT_PANEL_COLUMNS))
 
 
 @st.cache_data(show_spinner="전월세 실거래를 불러오고 있습니다...", max_entries=16)
@@ -290,7 +313,7 @@ def load_complex_rents(rent_version: int, complex_id: str) -> pd.DataFrame:
     ]
     if not path.exists():
         return pd.DataFrame(columns=columns)
-    return pd.read_parquet(path, columns=columns, filters=[("internal_complex_id", "=", complex_id)])
+    return _read_app_parquet(path, columns, filters=[("internal_complex_id", "=", complex_id)])
 
 
 @st.cache_data(show_spinner="매매 실거래를 불러오고 있습니다...", max_entries=16)
@@ -312,7 +335,7 @@ def load_complex_sales(trade_version: int, complex_id: str) -> pd.DataFrame:
     ]
     if not path.exists():
         return pd.DataFrame(columns=columns)
-    return pd.read_parquet(path, columns=columns, filters=[("internal_complex_id", "=", complex_id)])
+    return _read_app_parquet(path, columns, filters=[("internal_complex_id", "=", complex_id)])
 
 
 def render_recent_sale_contracts(

@@ -36,6 +36,9 @@ data/processed/**/*
 !data/processed/busan_apartment_monthly.parquet
 !data/processed/busan_apartment_rent_monthly.parquet
 !data/processed/busan_complex_summary.csv
+!data/processed/metropolitan_apartment_monthly.parquet
+!data/processed/metropolitan_apartment_rent_monthly.parquet
+!data/processed/metropolitan_complex_summary.csv
 !data/processed/recovery_watchlist.csv
 !data/processed/old_apartment_watchlist.csv
 !data/processed/data_update_status.json
@@ -51,9 +54,11 @@ data/processed/**/*
 !data/processed/schools/middle_history.parquet
 !data/processed/schools/manifest.json
 
-# 현재 앱이 직접 사용하는 유일한 interim 예외
+# 현재 앱이 직접 사용하는 interim 예외
 !data/interim/trade_matched.parquet
 !data/interim/rent_matched.parquet
+!data/interim/transactions_master.parquet
+!data/interim/metropolitan_rent_matched.parquet
 
 # 보고서 산출물 제외
 reports/figures/**/*

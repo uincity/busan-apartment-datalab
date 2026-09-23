@@ -77,16 +77,38 @@ def collect_trade(
     *,
     force: bool = False,
     lawd_codes: list[str] | None = None,
-) -> dict[str, int]:
+    region: str = "busan",
+    dry_run: bool = False,
+) -> dict[str, Any]:
     settings = load_settings()
     ensure_directories()
+    regions = load_regions(region)
+    if lawd_codes:
+        requested = {str(code).zfill(5) for code in lawd_codes}
+        known = set(regions["lawd_cd"].astype(str).str.zfill(5))
+        unknown = requested - known
+        if unknown:
+            raise ValueError(f"선택 지역에 속하지 않는 법정동 코드입니다: {', '.join(sorted(unknown))}")
+        regions = regions.loc[regions["lawd_cd"].astype(str).str.zfill(5).isin(requested)].copy()
+    months = list(month_range(start, end))
+    targets = [
+        Path(settings["paths"]["raw"]) / "trade" / ym / f"{row.lawd_cd}.parquet"
+        for ym in months for row in regions.itertuples(index=False)
+    ]
+    existing = sum(path.exists() for path in targets)
+    if dry_run:
+        return {
+            "region": region, "period": f"{start}~{end}", "months": len(months),
+            "api_calls": len(targets), "existing": existing,
+            "new": len(targets) if force else len(targets) - existing, "dry_run": True,
+        }
     key = api_key("PUBLIC_DATA_API_KEY")
     if not key:
         raise RuntimeError("PUBLIC_DATA_API_KEY가 없습니다. .env를 설정하거나 demo를 실행하세요.")
     log = logging.getLogger(__name__)
     stats = {"downloaded": 0, "skipped": 0, "failed": 0, "empty": 0}
     batch_id = new_batch_id("trade")
-    regions = load_regions()
+    regions = load_regions(region)
     if lawd_codes:
         requested = {str(code).zfill(5) for code in lawd_codes}
         known = set(regions["lawd_cd"].astype(str).str.zfill(5))
@@ -95,7 +117,7 @@ def collect_trade(
             raise ValueError(f"부산 법정동 코드가 아닙니다: {', '.join(sorted(unknown))}")
         regions = regions.loc[regions["lawd_cd"].astype(str).str.zfill(5).isin(requested)].copy()
     with requests.Session() as session:
-        for ym in month_range(start, end):
+        for ym in months:
             month_dir = Path(settings["paths"]["raw"]) / "trade" / ym
             month_dir.mkdir(parents=True, exist_ok=True)
             for region in regions.itertuples(index=False):

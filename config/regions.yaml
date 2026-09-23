@@ -1,0 +1,61 @@
+model_scope: BUSAN_ONLY
+collection_start: "202001"
+
+regions:
+  busan:
+    label: 부산
+    sido: 부산광역시
+    sido_code: "26"
+    region_level_1: BUSAN
+    region_level_2: 부산광역시
+    market_area: BUSAN_CORE
+    is_busan: true
+    is_satellite: false
+    kapt_file: busan_complexes.parquet
+    lawd_codes:
+      "26110": 중구
+      "26140": 서구
+      "26170": 동구
+      "26200": 영도구
+      "26230": 부산진구
+      "26260": 동래구
+      "26290": 남구
+      "26320": 북구
+      "26350": 해운대구
+      "26380": 사하구
+      "26410": 금정구
+      "26440": 강서구
+      "26470": 연제구
+      "26500": 수영구
+      "26530": 사상구
+      "26710": 기장군
+    market_area_overrides:
+      "26710": BUSAN_GIJANG
+
+  yangsan:
+    label: 양산
+    sido: 경상남도
+    sido_code: "48"
+    sigungu: 양산시
+    region_level_1: GYEONGNAM
+    region_level_2: 양산시
+    market_area: YANGSAN
+    is_busan: false
+    is_satellite: true
+    kapt_file: yangsan_complexes.parquet
+    lawd_codes:
+      "48330": 양산시
+
+  gimhae:
+    label: 김해
+    sido: 경상남도
+    sido_code: "48"
+    sigungu: 김해시
+    region_level_1: GYEONGNAM
+    region_level_2: 김해시
+    market_area: GIMHAE
+    is_busan: false
+    is_satellite: true
+    kapt_file: gimhae_complexes.parquet
+    lawd_codes:
+      "48250": 김해시

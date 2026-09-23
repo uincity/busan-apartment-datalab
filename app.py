@@ -26,6 +26,7 @@ from src.overview_map import (
     size_legend_values,
 )
 from src.recent_price_search import build_recent_price_summary, filter_recent_price_summary
+from src.regions import REGION_SCOPE_OPTIONS, scope_mask
 from src.sidebar_navigation import render_sidebar_navigation
 from src.school_data import ELEMENTARY_HISTORY_FILE, MIDDLE_HISTORY_FILE, SNAPSHOT_DIR, load_school_snapshot, select_top_schools
 from src.school_display import (
@@ -96,6 +97,15 @@ PANEL_COLUMNS = [
     "complex_name",
     "sigungu",
     "dong",
+    "sido",
+    "region_code",
+    "region_key",
+    "region_name",
+    "region_level_1",
+    "region_level_2",
+    "market_area",
+    "is_busan",
+    "is_satellite",
     "provisional",
 ]
 RENT_PANEL_COLUMNS = [
@@ -119,6 +129,15 @@ COMPLEX_SUMMARY_SOURCE_COLUMNS = [
     "complex_name",
     "sigungu",
     "dong",
+    "sido",
+    "region_code",
+    "region_key",
+    "region_name",
+    "region_level_1",
+    "region_level_2",
+    "market_area",
+    "is_busan",
+    "is_satellite",
     "households",
     "approval_date",
     "apartment_age",
@@ -195,7 +214,8 @@ def _read_recent_trades(path: Path, columns: list[str], months: int) -> pd.DataF
 
 @st.cache_resource(show_spinner=False)
 def load_panel() -> pd.DataFrame:
-    panel_path = PROCESSED / "busan_apartment_monthly.parquet"
+    master_path = PROCESSED / "metropolitan_apartment_monthly.parquet"
+    panel_path = master_path if master_path.exists() else PROCESSED / "busan_apartment_monthly.parquet"
     if not panel_path.exists():
         return pd.DataFrame()
     panel = pd.read_parquet(panel_path, columns=PANEL_COLUMNS)
@@ -204,8 +224,10 @@ def load_panel() -> pd.DataFrame:
 
 @st.cache_resource(show_spinner=False)
 def load_complexes() -> pd.DataFrame:
-    panel_path = PROCESSED / "busan_apartment_monthly.parquet"
-    complex_path = PROCESSED / "busan_complex_summary.csv"
+    master_panel = PROCESSED / "metropolitan_apartment_monthly.parquet"
+    master_complex = PROCESSED / "metropolitan_complex_summary.csv"
+    panel_path = master_panel if master_panel.exists() else PROCESSED / "busan_apartment_monthly.parquet"
+    complex_path = master_complex if master_complex.exists() else PROCESSED / "busan_complex_summary.csv"
     if complex_path.exists():
         return apply_complex_display_names(pd.read_csv(complex_path))
     if not panel_path.exists():
@@ -343,6 +365,23 @@ def render_recent_sale_contracts(
 def load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
     """호환용 진입점. 큰 객체는 세션별 복사 없이 프로세스에서 공유한다."""
     return load_panel(), load_complexes()
+
+
+def select_market_scope() -> tuple[str, str]:
+    label = st.sidebar.selectbox(
+        "지역",
+        list(REGION_SCOPE_OPTIONS),
+        index=0,
+        key="market_region_scope",
+        help="부산은 기존 기본 화면이며, 광역생활권은 부산·양산·김해를 함께 조회합니다.",
+    )
+    return label, REGION_SCOPE_OPTIONS[label]
+
+
+def apply_market_scope(frame: pd.DataFrame, selector: str) -> pd.DataFrame:
+    if frame.empty:
+        return frame
+    return frame.loc[scope_mask(frame, selector)].copy()
 
 
 @st.cache_data(show_spinner=False, max_entries=2)
@@ -1249,7 +1288,8 @@ if menu == "실거래가 단지 검색":
     render_recent_price_search(trade_version, complex_version)
     st.stop()
 
-complexes = load_complexes()
+market_scope_label, market_scope = select_market_scope()
+complexes = apply_market_scope(load_complexes(), market_scope)
 if menu == "아파트 TOP 20":
     if complexes.empty:
         st.warning("단지 요약 데이터가 없습니다. `python main.py build`를 먼저 실행해 주세요.")
@@ -1259,7 +1299,7 @@ if menu == "아파트 TOP 20":
     render_apartment_rankings(load_ranking_trades(ranking_trade_version), complexes)
     st.stop()
 
-panel = load_panel()
+panel = apply_market_scope(load_panel(), market_scope)
 if panel.empty or complexes.empty:
     if uses_global_filters:
         render_sidebar_update(update_summary)
@@ -1279,7 +1319,7 @@ districts = build_district_summary(filtered_complexes)
 dongs = build_dong_summary(filtered_complexes)
 
 if menu == "부산 Overview":
-    st.subheader(":material/map: 부산 아파트 지도")
+    st.subheader(f":material/map: {market_scope_label} 아파트 지도")
     household_filter = st.session_state.get("filter_household_range", (DEFAULT_MIN_HOUSEHOLDS, None))
     approval_filter = st.session_state.get("filter_approval_year_range", (DEFAULT_MIN_APPROVAL_YEAR, None))
     household_max = pd.to_numeric(complexes["households"], errors="coerce").max()
@@ -1291,7 +1331,7 @@ if menu == "부산 Overview":
         f"{approval_filter[0]}년 이후" if approval_filter[1] is None or approval_filter[1] >= pd.Timestamp.today().year
         else f"{approval_filter[0]}~{approval_filter[1]}년"
     )
-    region_label = " · ".join(st.session_state.get("filter_districts", [])) or "부산 전체"
+    region_label = " · ".join(st.session_state.get("filter_districts", [])) or market_scope_label
     if st.session_state.get("filter_dongs"):
         region_label += f" · 법정동 {len(st.session_state['filter_dongs'])}곳"
     st.caption(f"{household_label}  ·  {approval_label}  ·  {region_label}")
@@ -1363,9 +1403,9 @@ if menu == "부산 Overview":
         )
         map_complexes["entity_type"] = "apartment"
         available_map_ids = set(map_complexes["internal_complex_id"].astype(str))
-        selected_map_focus_id = str(
-            st.session_state.get("detail_complex_id", DEFAULT_MAP_FOCUS_ID)
-        )
+        selected_map_focus_id = str(st.session_state.get("detail_complex_id", DEFAULT_MAP_FOCUS_ID))
+        if market_scope != "busan":
+            selected_map_focus_id = ""
         if selected_map_focus_id not in available_map_ids:
             selected_map_focus_id = DEFAULT_MAP_FOCUS_ID
         map_apartments = map_complexes if show_apartments else map_complexes.iloc[0:0]

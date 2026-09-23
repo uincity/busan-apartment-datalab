@@ -30,8 +30,13 @@ def api_key(name: str) -> str | None:
     return os.getenv(name) or None
 
 
-def load_regions() -> pd.DataFrame:
-    return pd.read_csv(ROOT / "config" / "busan_region_codes.csv", dtype={"lawd_cd": str})
+def load_regions(selector: str = "busan") -> pd.DataFrame:
+    # Imported lazily to keep the settings module independent and to preserve
+    # the historical default: existing commands still target 부산 unless a
+    # region selector is supplied explicitly.
+    from .regions import regions_frame
+
+    return regions_frame(selector)[["sido", "sigungu", "lawd_cd"]]
 
 
 def ensure_directories() -> None:

@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from .clean_trade import normalize_complex_name
+from .regions import enrich_region_dimensions
 from .utils import first_present
 
 
@@ -29,6 +30,8 @@ ALIASES = {
     "latitude": ["wgs84Lat", "latitude", "위도"],
     "longitude": ["wgs84Lon", "longitude", "경도"],
     "sigungu": ["as2", "sigungu", "구군"],
+    "sido": ["as1", "sido", "시도"],
+    "region_code": ["bjdCode", "bjd_code", "region_code"],
 }
 
 
@@ -96,4 +99,4 @@ def clean_kapt(raw: pd.DataFrame, *, as_of: date | None = None) -> pd.DataFrame:
     out["is_over_20years"] = out["apartment_age"].gt(20)
     out["is_over_30years"] = out["apartment_age"].gt(30)
     out["age_group"] = out["apartment_age"].map(_age_group)
-    return out
+    return enrich_region_dimensions(out)

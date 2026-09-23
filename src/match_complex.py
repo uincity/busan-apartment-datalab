@@ -184,6 +184,14 @@ def match_complexes(
         frame["sigungu_norm"] = frame.get("sigungu", pd.Series(index=frame.index, dtype="object")).map(normalize_address)
         frame["dong_norm"] = frame.get("dong", pd.Series(index=frame.index, dtype="object")).map(normalize_address)
         frame["jibun_norm"] = frame.get("jibun", pd.Series(index=frame.index, dtype="object")).map(normalize_lot_number)
+        frame["region_norm"] = frame.get(
+            "region_code", frame.get("lawd_cd", pd.Series(index=frame.index, dtype="object"))
+        ).fillna("").astype(str).str.extract(r"(\d{5})", expand=False).fillna("")
+
+    region_aware = complexes["region_norm"].ne("").any() and k["region_norm"].ne("").any()
+    if not region_aware:
+        complexes["region_norm"] = ""
+        k["region_norm"] = ""
 
     # 전월세 API의 roadnm은 매매 API와 달리 "수영로 261"처럼 건물번호까지
     # 포함하는 경우가 있다. 도로명과 번호를 먼저 분리하고, 별도 번호 필드가
@@ -196,12 +204,16 @@ def match_complexes(
     k["road_number_norm"] = parsed_roads.str[1]
     for frame in [complexes, k]:
         frame["road_address_key"] = [
-            _key(sigungu, road, number)
-            for sigungu, road, number in zip(frame["sigungu_norm"], frame["road_norm"], frame["road_number_norm"])
+            _key(region or sigungu, road, number)
+            for region, sigungu, road, number in zip(
+                frame["region_norm"], frame["sigungu_norm"], frame["road_norm"], frame["road_number_norm"]
+            )
         ]
         frame["legal_address_key"] = [
-            _key(sigungu, dong, jibun)
-            for sigungu, dong, jibun in zip(frame["sigungu_norm"], frame["dong_norm"], frame["jibun_norm"])
+            _key(region or sigungu, dong, jibun)
+            for region, sigungu, dong, jibun in zip(
+                frame["region_norm"], frame["sigungu_norm"], frame["dong_norm"], frame["jibun_norm"]
+            )
         ]
         frame["road_main_key"] = frame["road_address_key"].astype("string").str.replace(
             r"-\d+$", "", regex=True
@@ -269,6 +281,8 @@ def match_complexes(
                 k["dong_norm"].eq(row["dong_norm"])
                 & k["sigungu_norm"].eq(row["sigungu_norm"])
             ]
+            if row["region_norm"]:
+                candidates = candidates[candidates["region_norm"].eq(row["region_norm"])]
             if not candidates.empty and name:
                 scores = candidates["complex_name_normalized"].map(lambda candidate: fuzz.ratio(name, candidate))
                 best_index = scores.idxmax()

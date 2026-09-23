@@ -23,6 +23,15 @@ def build_monthly_panel(trade: pd.DataFrame, kapt: pd.DataFrame, *, low_sample_t
             sigungu=("sigungu", "first"),
             dong=("dong", "first"),
             complex_name=("complex_name", "first"),
+            sido=("sido", "first"),
+            region_code=("region_code", "first"),
+            region_key=("region_key", "first"),
+            region_name=("region_name", "first"),
+            region_level_1=("region_level_1", "first"),
+            region_level_2=("region_level_2", "first"),
+            market_area=("market_area", "first"),
+            is_busan=("is_busan", "first"),
+            is_satellite=("is_satellite", "first"),
             provisional=("provisional", "max"),
         )
         .reset_index()
@@ -46,4 +55,3 @@ def latest_rows(panel: pd.DataFrame) -> pd.DataFrame:
         return panel.copy()
     max_month = panel.groupby(["internal_complex_id", "area_group"], dropna=False)["year_month"].transform("max")
     return panel.loc[panel["year_month"].eq(max_month)].copy()
-

@@ -56,6 +56,16 @@ def test_overview_controls_rerender_without_duplicate_sidebar():
     assert "1,000~2,000세대" in app.main.children[4].value
 
 
+def test_metropolitan_region_selector_supports_all_scopes():
+    app = AppTest.from_file(str(APP_PATH), default_timeout=40).run()
+    for value in ["부산", "부산 + 양산 + 김해", "양산", "김해"]:
+        region = next(widget for widget in app.sidebar.selectbox if widget.label == "지역")
+        region.set_value(value).run()
+        assert not app.exception
+        current = next(widget for widget in app.sidebar.selectbox if widget.label == "지역")
+        assert current.value == value
+
+
 def test_market_cap_starts_without_trade_update_status_section():
     app = AppTest.from_file(str(APP_PATH), default_timeout=40).run()
     next(button for button in app.sidebar.button if button.label == "아파트 시가총액").click().run()

@@ -26,6 +26,11 @@ def build_complex_summary(panel: pd.DataFrame) -> pd.DataFrame:
         .groupby("internal_complex_id", dropna=False)
         .agg(
             complex_name=("complex_name", "first"), sigungu=("sigungu", "first"), dong=("dong", "first"),
+            sido=("sido", "first"), region_code=("region_code", "first"),
+            region_key=("region_key", "first"), region_name=("region_name", "first"),
+            region_level_1=("region_level_1", "first"), region_level_2=("region_level_2", "first"),
+            market_area=("market_area", "first"), is_busan=("is_busan", "first"),
+            is_satellite=("is_satellite", "first"),
             households=("households", "first"), approval_date=("approval_date", "first"),
             apartment_age=("apartment_age", "first"), parking_total=("parking_total", "first"),
             parking_per_household=("parking_per_household", "first"), transactions_3m=("transactions_3m", "sum"),

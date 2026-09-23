@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import date, timedelta
 from pathlib import Path
 
 from src.collect_kapt import collect_kapt
@@ -12,8 +13,10 @@ from src.config import ensure_directories
 from src.export_kapt import export_kapt_excel
 from src.geocode_kakao import geocode_kapt
 from src.pipeline import build, create_demo_data, report
+from src.metropolitan import build_metropolitan
 from src.school_data import SNAPSHOT_DIR, build_school_snapshot
 from src.config import ROOT
+from src.regions import collection_start
 from src.utils import setup_logging
 
 
@@ -21,18 +24,23 @@ def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(description="부산 아파트 데이터 수집·분석 CLI")
     commands = root.add_subparsers(dest="command", required=True)
     trade = commands.add_parser("collect-trade", help="국토교통부 실거래 수집")
-    trade.add_argument("--start", required=True, help="시작월 YYYYMM")
-    trade.add_argument("--end", required=True, help="종료월 YYYYMM")
+    default_end = (date.today().replace(day=1) - timedelta(days=1)).strftime("%Y%m")
+    trade.add_argument("--start", default=collection_start(), help="시작월 YYYYMM")
+    trade.add_argument("--end", default=default_end, help="종료월 YYYYMM")
     trade.add_argument("--force", action="store_true")
+    trade.add_argument("--region", choices=["busan", "yangsan", "gimhae", "satellite", "all"], default="busan")
+    trade.add_argument("--dry-run", action="store_true")
     trade.add_argument(
         "--lawd-cd",
         nargs="+",
         help="수집할 부산 구·군 법정동 코드(예: 26350). 생략하면 16개 구·군 전체",
     )
     rent = commands.add_parser("collect-rent", help="국토교통부 아파트 전월세 실거래 수집")
-    rent.add_argument("--start", required=True, help="시작월 YYYYMM")
-    rent.add_argument("--end", required=True, help="종료월 YYYYMM")
+    rent.add_argument("--start", default=collection_start(), help="시작월 YYYYMM")
+    rent.add_argument("--end", default=default_end, help="종료월 YYYYMM")
     rent.add_argument("--force", action="store_true")
+    rent.add_argument("--region", choices=["busan", "yangsan", "gimhae", "satellite", "all"], default="busan")
+    rent.add_argument("--dry-run", action="store_true")
     rent.add_argument(
         "--lawd-cd",
         nargs="+",
@@ -40,8 +48,11 @@ def parser() -> argparse.ArgumentParser:
     )
     kapt = commands.add_parser("collect-kapt", help="K-apt 단지 수집")
     kapt.add_argument("--force", action="store_true")
+    kapt.add_argument("--region", choices=["busan", "yangsan", "gimhae", "satellite", "all"], default="busan")
+    kapt.add_argument("--dry-run", action="store_true")
     geocode = commands.add_parser("geocode-kapt", help="카카오 주소검색 API로 K-apt 단지 좌표 보강")
     geocode.add_argument("--retry-failed", action="store_true", help="이전에 검색되지 않은 주소도 다시 요청")
+    geocode.add_argument("--region", choices=["busan", "yangsan", "gimhae", "satellite", "all"], default="busan")
     commands.add_parser("export-kapt-excel", help="수집된 K-apt 단지 목록을 분석용 Excel로 저장")
     build_command = commands.add_parser("build", help="정제·매칭·월 패널·요약 생성")
     build_command.add_argument(
@@ -50,6 +61,7 @@ def parser() -> argparse.ArgumentParser:
         help="기존 정제·매칭 결과를 재사용하고 최근 잠정 구간과 새 월만 다시 처리",
     )
     commands.add_parser("report", help="기존 월 패널에서 보고서 재생성")
+    commands.add_parser("build-metropolitan", help="부산·양산·김해 통합 master 생성")
     commands.add_parser("demo", help="API 키 없이 데모 데이터와 대시보드 자료 생성")
     school = commands.add_parser("sync-school-data", help="학교 분석 결과를 조회용 snapshot으로 동기화")
     school.add_argument("--source", required=True, type=str, help="busan_school_analysis 프로젝트 경로")
@@ -62,19 +74,27 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
         if args.command == "collect-trade":
-            result = collect_trade(args.start, args.end, force=args.force, lawd_codes=args.lawd_cd)
+            result = collect_trade(
+                args.start, args.end, force=args.force, lawd_codes=args.lawd_cd,
+                region=args.region, dry_run=args.dry_run,
+            )
         elif args.command == "collect-rent":
-            result = collect_rent(args.start, args.end, force=args.force, lawd_codes=args.lawd_cd)
+            result = collect_rent(
+                args.start, args.end, force=args.force, lawd_codes=args.lawd_cd,
+                region=args.region, dry_run=args.dry_run,
+            )
         elif args.command == "collect-kapt":
-            result = collect_kapt(force=args.force)
+            result = collect_kapt(force=args.force, region=args.region, dry_run=args.dry_run)
         elif args.command == "geocode-kapt":
-            result = geocode_kapt(retry_failed=args.retry_failed)
+            result = geocode_kapt(retry_failed=args.retry_failed, region=args.region)
         elif args.command == "export-kapt-excel":
             result = export_kapt_excel()
         elif args.command == "build":
             result = build(incremental=args.incremental)
         elif args.command == "report":
             result = report()
+        elif args.command == "build-metropolitan":
+            result = build_metropolitan()
         elif args.command == "sync-school-data":
             result = build_school_snapshot(Path(args.source), ROOT / SNAPSHOT_DIR)
         else:

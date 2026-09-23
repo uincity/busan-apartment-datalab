@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "months": {
+    "2026-08": [
+      {
+        "run_id": "one",
+        "revision_reason": "",
+        "input_hash": "i",
+        "rules_hash": "r",
+        "master_hash": "m",
+        "executed_at": "2026-09-17",
+        "kind": "initial",
+        "path": "2026-08/one"
+      },
+      {
+        "run_id": "two",
+        "revision_reason": "수정",
+        "input_hash": "i",
+        "rules_hash": "r",
+        "master_hash": "m",
+        "executed_at": "2026-09-17",
+        "kind": "revision",
+        "path": "2026-08/two"
+      }
+    ]
+  }
+}

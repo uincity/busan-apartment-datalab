@@ -47,6 +47,35 @@ python main.py geocode-kapt
 python main.py export-kapt-excel
 ```
 
+### 부산 광역생활권(양산·김해)
+
+지역 정의와 법정동 코드는 `config/regions.yaml`에서 한 번만 관리합니다. 부산은 기존 기본값이며,
+기장군은 부산에 포함하되 `BUSAN_GIJANG` 하위시장으로 구분합니다. 실행 전 호출 범위는
+`--dry-run`으로 확인할 수 있습니다.
+
+```powershell
+python main.py collect-kapt --region satellite --dry-run
+python main.py collect-trade --region satellite --start 202001 --end 202609 --dry-run
+python main.py collect-kapt --region satellite
+python main.py collect-trade --region satellite --start 202001 --end 202609
+python main.py build-metropolitan
+python main.py geocode-kapt --region satellite --retry-failed
+```
+
+`--region`은 `busan`, `yangsan`, `gimhae`, `satellite`, `all`을 지원합니다. 저장된 월·지역
+파일은 다시 호출하지 않으므로 같은 명령을 재실행해도 미수집 범위만 이어서 받습니다.
+광역생활권 빌드는 기존 부산 산출물을 덮어쓰지 않고 다음 병행 파일을 만듭니다.
+
+- `data/interim/apartment_master.parquet`
+- `data/interim/transactions_master.parquet`
+- `data/processed/metropolitan_apartment_monthly.parquet`
+- `data/processed/metropolitan_complex_summary.csv`
+- `reports/tables/metropolitan_scope_report.csv`
+- `reports/tables/metropolitan_quality_report.csv`
+
+School Value, Local Value, Dual Signal, 부산 시가총액 모델은 `MODEL_SCOPE = "BUSAN_ONLY"`로
+보호되며 양산·김해 자료를 자동 입력하지 않습니다.
+
 매매·전월세 실거래 수집은 각각 부산 16개 지역 × 월을 순회합니다. 저장된 지역/월 파일은 건너뛰며 다시 받을 때만 `--force`를 사용합니다. API 호출은 페이지네이션, timeout, retry, exponential backoff를 적용하고 한 지역의 빈 응답·실패가 전체 수집을 중단하지 않습니다.
 
 K-apt 수집은 유효한 실데이터 원본이 있으면 재사용하고, 데모·불완전 원본은 자동으로 감지해 다시 수집합니다. 최신값을 강제로 다시 받으려면 `python main.py collect-kapt --force`를 사용합니다.
@@ -127,7 +156,7 @@ python main.py sync-school-data --source ../busan_school_analysis
 streamlit run app.py
 ```
 
-부산 Overview 지도에서는 아파트·초등학교·중학교 레이어를 독립적으로 켜고 끌 수 있으며, 학교별 Top 10/20/30/50과 부산 전체/선택 구·군 순위를 지원합니다. 학교 마커를 누른 뒤 요약 카드에서 앱 내부 상세 화면으로 이동할 수 있습니다. 학교 위치는 배정학교를 뜻하지 않습니다. 아파트 상세에서는 매매·전세 가격 추이, 전세가율, 전세·월세 계약량과 최근 개별 임대차 계약을 함께 확인할 수 있습니다. 기간·구군·법정동·단지·면적그룹·연식·세대수 필터를 제공하며 최신 잠정 월이 포함되면 화면 하단에 표시합니다.
+상단 `지역` 필터에서 부산(기본), 부산 + 양산 + 김해, 양산, 김해를 선택할 수 있습니다. 광역 범위 지도는 표시 좌표의 경계에 따라 중심과 확대 수준을 자동 조정하고 tooltip에 시도·시군구를 표시합니다. 부산 Overview 지도에서는 아파트·초등학교·중학교 레이어를 독립적으로 켜고 끌 수 있으며, 학교별 Top 10/20/30/50과 부산 전체/선택 구·군 순위를 지원합니다. 학교·Local Value·시가총액 모델은 검증된 부산 범위에만 유지됩니다.
 
 ## 7. 테스트
 

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import re
+import hashlib
 from datetime import date
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
+from .regions import enrich_region_dimensions
 from .utils import first_present
 
 
@@ -158,9 +160,16 @@ def clean_trade(raw: pd.DataFrame, *, provisional_months: int = 2, exclude_cance
     cutoff = pd.Period(date.today(), freq="M") - max(0, provisional_months - 1)
     periods = pd.to_datetime(out["year_month"], errors="coerce").dt.to_period("M")
     out["provisional"] = periods >= cutoff
+    out["legal_dong"] = out["dong"]
+    out["region_code"] = out["lawd_cd"].astype("string").str.zfill(5)
+    out = enrich_region_dimensions(out, code_column="region_code", sigungu_column="sigungu")
     duplicate_key = [
         "lawd_cd", "dong", "jibun", "complex_name_normalized", "area_sqm", "floor", "deal_date", "deal_amount_krw"
     ]
+    identity = out[duplicate_key].astype("string").fillna("").agg("|".join, axis=1)
+    out["transaction_id"] = identity.map(
+        lambda value: hashlib.sha1(value.encode("utf-8")).hexdigest().upper()
+    )
     if preserve_rows:
         # Batch valuations preserve distinct source occurrences, even at identical
         # date/floor/area/price. Existing analysis keeps its historical policy.

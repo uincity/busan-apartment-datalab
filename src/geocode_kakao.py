@@ -10,9 +10,10 @@ from typing import Any
 import pandas as pd
 import requests
 
-from .analysis import save_analysis_tables
+from .analysis import build_complex_summary, save_analysis_tables
 from .clean_kapt import clean_kapt
 from .config import api_key, ensure_directories, load_settings
+from .regions import scope_mask
 from .utils import write_parquet
 
 
@@ -28,7 +29,12 @@ def _atomic_write_parquet(frame: pd.DataFrame, path: Path) -> None:
     temporary.replace(path)
 
 
-def _load_geocode_source(settings: dict[str, Any]) -> pd.DataFrame:
+def _load_geocode_source(settings: dict[str, Any], *, metropolitan: bool = False) -> pd.DataFrame:
+    if metropolitan:
+        master_path = Path(settings["paths"]["interim"]) / "apartment_master.parquet"
+        if not master_path.exists():
+            raise RuntimeError("apartment_master.parquet이 없습니다. build-metropolitan을 먼저 실행하세요.")
+        return pd.read_parquet(master_path)
     interim_path = Path(settings["paths"]["interim"]) / "kapt_clean.parquet"
     if interim_path.exists():
         return pd.read_parquet(interim_path)
@@ -146,7 +152,33 @@ def _update_existing_outputs(kapt: pd.DataFrame, settings: dict[str, Any]) -> in
     return int((after & ~before).sum())
 
 
-def geocode_kapt(*, retry_failed: bool = False) -> dict[str, int | str]:
+def _update_metropolitan_outputs(kapt: pd.DataFrame, settings: dict[str, Any]) -> int:
+    processed = Path(settings["paths"]["processed"])
+    panel_path = processed / "metropolitan_apartment_monthly.parquet"
+    if not panel_path.exists():
+        return 0
+    panel = pd.read_parquet(panel_path)
+    coordinates = kapt.dropna(subset=["kapt_code", "latitude", "longitude"])[
+        ["kapt_code", "latitude", "longitude"]
+    ].drop_duplicates("kapt_code", keep="last").rename(
+        columns={"latitude": "latitude_geocoded", "longitude": "longitude_geocoded"}
+    )
+    panel["kapt_code"] = panel["kapt_code"].astype("string")
+    coordinates["kapt_code"] = coordinates["kapt_code"].astype("string")
+    panel = panel.merge(coordinates, on="kapt_code", how="left")
+    before = panel[["latitude", "longitude"]].notna().all(axis=1)
+    panel["latitude"] = pd.to_numeric(panel["latitude"], errors="coerce").fillna(panel["latitude_geocoded"])
+    panel["longitude"] = pd.to_numeric(panel["longitude"], errors="coerce").fillna(panel["longitude_geocoded"])
+    after = panel[["latitude", "longitude"]].notna().all(axis=1)
+    panel = panel.drop(columns=["latitude_geocoded", "longitude_geocoded"])
+    _atomic_write_parquet(panel, panel_path)
+    build_complex_summary(panel).to_csv(
+        processed / "metropolitan_complex_summary.csv", index=False, encoding="utf-8-sig"
+    )
+    return int((after & ~before).sum())
+
+
+def geocode_kapt(*, retry_failed: bool = False, region: str = "busan") -> dict[str, int | str]:
     settings = load_settings()
     ensure_directories()
     key = api_key("KAKAO_API_KEY")
@@ -155,7 +187,8 @@ def geocode_kapt(*, retry_failed: bool = False) -> dict[str, int | str]:
 
     cfg = settings["kakao_geocoding"]
     log = logging.getLogger(__name__)
-    kapt = _load_geocode_source(settings)
+    metropolitan = region != "busan"
+    kapt = _load_geocode_source(settings, metropolitan=metropolitan)
     cache_path = Path(settings["paths"]["interim"]) / "kapt_coordinates.parquet"
     cache = pd.read_parquet(cache_path) if cache_path.exists() else pd.DataFrame(columns=COORDINATE_COLUMNS)
     override_path = Path(settings["paths"]["root"]) / "config" / "geocode_address_overrides.csv"
@@ -175,6 +208,8 @@ def geocode_kapt(*, retry_failed: bool = False) -> dict[str, int | str]:
         pd.to_numeric(kapt.get("latitude"), errors="coerce").isna()
         | pd.to_numeric(kapt.get("longitude"), errors="coerce").isna()
     ].copy()
+    if metropolitan:
+        candidates = candidates.loc[scope_mask(candidates, region)].copy()
     attempted = succeeded = not_found = skipped = 0
     save_every = int(cfg["save_every"])
 
@@ -230,10 +265,16 @@ def geocode_kapt(*, retry_failed: bool = False) -> dict[str, int | str]:
     save_cache()
     cache = pd.read_parquet(cache_path)
     enriched = apply_coordinate_cache(kapt, cache)
-    interim_path = Path(settings["paths"]["interim"]) / "kapt_clean.parquet"
+    interim_path = Path(settings["paths"]["interim"]) / (
+        "apartment_master.parquet" if metropolitan else "kapt_clean.parquet"
+    )
     _atomic_write_parquet(enriched, interim_path)
-    updated_panel_rows = _update_existing_outputs(enriched, settings)
-    located = enriched["latitude"].notna() & enriched["longitude"].notna()
+    updated_panel_rows = (
+        _update_metropolitan_outputs(enriched, settings)
+        if metropolitan else _update_existing_outputs(enriched, settings)
+    )
+    selected = enriched.loc[scope_mask(enriched, region)] if metropolitan else enriched
+    located = selected["latitude"].notna() & selected["longitude"].notna()
     log.info("카카오 좌표변환 완료 located=%s/%s cache=%s", located.sum(), len(enriched), cache_path)
     return {
         "candidates": len(candidates),

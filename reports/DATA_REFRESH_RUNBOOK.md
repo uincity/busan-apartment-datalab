@@ -99,6 +99,20 @@ KAKAO_API_KEY=카카오_REST_API_키
 
 ## 4. 매매·전월세 정기 갱신
 
+광역생활권을 함께 갱신할 때는 실행 전에 범위를 확인한 뒤 master를 별도로 빌드합니다.
+
+```powershell
+.venv\Scripts\python.exe main.py collect-trade --region satellite --start 202607 --end 202609 --dry-run
+.venv\Scripts\python.exe main.py collect-trade --region satellite --start 202607 --end 202609 --force
+.venv\Scripts\python.exe main.py collect-kapt --region satellite
+.venv\Scripts\python.exe main.py build-metropolitan
+```
+
+K-apt API가 성공 코드와 빈 목록·빈 상세 본문을 반환하면 수집기는 재시도하며, 기존 유효
+지역 파일은 보존합니다. `metropolitan_scope_report.csv`에서 양산·김해 단지 수와 좌표 보유율,
+`metropolitan_quality_report.csv`에서 중복·주소·거래일·지역코드 오류를 확인합니다. 부산 전용
+`build`와 시가총액·학교 모델 산출물은 이 명령으로 변경되지 않습니다.
+
 아래 예시는 2026년 7월부터 9월까지 다시 수집하는 경우입니다. 실제 작업 월에 맞게 `--start`와 `--end`를 변경합니다.
 
 ### 4.1 매매 원본 수집

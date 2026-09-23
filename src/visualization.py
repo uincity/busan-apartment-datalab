@@ -755,7 +755,11 @@ def combined_pydeck_map(
         work["entity_type"] = "apartment"
         work["entity_id"] = work["internal_complex_id"].astype(str)
         work["display_name"] = work["complex_name"].astype(str)
-        work["detail_line"] = work["sigungu"].astype(str) + " · " + work["dong"].astype(str)
+        sido = work.get("sido", pd.Series("", index=work.index)).fillna("").astype(str)
+        work["detail_line"] = (
+            sido.str.strip() + " " + work["sigungu"].fillna("").astype(str).str.strip()
+            + " · " + work["dong"].fillna("").astype(str).str.strip()
+        ).str.strip()
         work["households_display"] = households.map(
             lambda value: "-" if pd.isna(value) else f"{float(value):,.0f}세대"
         )
@@ -813,9 +817,16 @@ def combined_pydeck_map(
     focus = apartments[apartments.get("internal_complex_id", pd.Series(dtype="object")).astype(str).eq(str(focus_complex_id))] if not apartments.empty else pd.DataFrame()
     latitude = float(focus.iloc[0]["latitude"]) if not focus.empty else float(centers["latitude"].mean())
     longitude = float(focus.iloc[0]["longitude"]) if not focus.empty else float(centers["longitude"].mean())
+    if focus.empty:
+        lat_span = float(centers["latitude"].max() - centers["latitude"].min())
+        lon_span = float(centers["longitude"].max() - centers["longitude"].min())
+        span = max(lat_span, lon_span, 0.01)
+        zoom = max(7.0, min(11.0, 10.8 - math.log2(span / 0.1)))
+    else:
+        zoom = DEFAULT_MAP_ZOOM
     return pdk.Deck(
         map_style=None,
-        initial_view_state=pdk.ViewState(latitude=latitude, longitude=longitude, zoom=DEFAULT_MAP_ZOOM if not focus.empty else 9, pitch=0),
+        initial_view_state=pdk.ViewState(latitude=latitude, longitude=longitude, zoom=zoom, pitch=0),
         layers=layers,
         tooltip={"html": "<b>{display_name}</b><br>{detail_line}<br>{metric_line}", "style": {"backgroundColor": "#172033", "color": "white"}},
     )

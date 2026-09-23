@@ -296,7 +296,8 @@ def load_complex_rents(rent_version: int, complex_id: str) -> pd.DataFrame:
 @st.cache_data(show_spinner="매매 실거래를 불러오고 있습니다...", max_entries=16)
 def load_complex_sales(trade_version: int, complex_id: str) -> pd.DataFrame:
     _ = trade_version
-    path = ROOT / "data" / "interim" / "trade_matched.parquet"
+    metropolitan_path = ROOT / "data" / "interim" / "transactions_master.parquet"
+    path = metropolitan_path if metropolitan_path.exists() else ROOT / "data" / "interim" / "trade_matched.parquet"
     columns = [
         "internal_complex_id",
         "year_month",
@@ -322,7 +323,8 @@ def render_recent_sale_contracts(
     area_group: str | None = None,
 ) -> None:
     """선택 단지의 분석기간 내 취소되지 않은 최근 매매계약을 표시한다."""
-    trade_path = ROOT / "data" / "interim" / "trade_matched.parquet"
+    metropolitan_path = ROOT / "data" / "interim" / "transactions_master.parquet"
+    trade_path = metropolitan_path if metropolitan_path.exists() else ROOT / "data" / "interim" / "trade_matched.parquet"
     trade_version = trade_path.stat().st_mtime_ns if trade_path.exists() else 0
     recent_sales = load_complex_sales(trade_version, str(complex_id))
     if not recent_sales.empty:
@@ -555,12 +557,19 @@ def load_ranking_trades(trade_version: int) -> pd.DataFrame:
 
 @st.cache_data(
     show_spinner="선택 기간의 실거래가 중앙값을 계산하고 있습니다...",
-    max_entries=3,
+    max_entries=12,
 )
-def load_recent_price_summary(trade_version: int, complex_version: int, months: int = 1) -> pd.DataFrame:
+def load_recent_price_summary(
+    trade_version: int,
+    complex_version: int,
+    market_scope: str,
+    months: int = 1,
+) -> pd.DataFrame:
     _ = trade_version, complex_version
-    trade_path = ROOT / "data" / "interim" / "trade_matched.parquet"
-    complex_path = PROCESSED / "busan_complex_summary.csv"
+    metropolitan_trade = ROOT / "data" / "interim" / "transactions_master.parquet"
+    metropolitan_complex = PROCESSED / "metropolitan_complex_summary.csv"
+    trade_path = metropolitan_trade if metropolitan_trade.exists() else ROOT / "data" / "interim" / "trade_matched.parquet"
+    complex_path = metropolitan_complex if metropolitan_complex.exists() else PROCESSED / "busan_complex_summary.csv"
     if not trade_path.exists() or not complex_path.exists():
         return pd.DataFrame()
     trade_columns = [
@@ -572,10 +581,15 @@ def load_recent_price_summary(trade_version: int, complex_version: int, months: 
         "dong",
         "is_cancelled",
         "provisional",
+        "region_key",
     ]
+    recent_trades = _read_recent_trades(trade_path, trade_columns, months=months)
+    complexes = pd.read_csv(complex_path)
+    recent_trades = apply_market_scope(recent_trades, market_scope)
+    complexes = apply_market_scope(complexes, market_scope)
     return build_recent_price_summary(
-        _read_recent_trades(trade_path, trade_columns, months=months),
-        pd.read_csv(complex_path),
+        recent_trades,
+        complexes,
         months=months,
     )
 
@@ -1125,7 +1139,12 @@ def render_apartment_rankings(trades: pd.DataFrame, complexes: pd.DataFrame) -> 
         )
 
 
-def render_recent_price_search(trade_version: int, complex_version: int) -> None:
+def render_recent_price_search(
+    trade_version: int,
+    complex_version: int,
+    market_scope_label: str,
+    market_scope: str,
+) -> None:
     st.subheader(":material/search: 최근 실거래가 단지 검색")
     period_label = st.segmented_control(
         "실거래 집계기간",
@@ -1137,6 +1156,7 @@ def render_recent_price_search(trade_version: int, complex_version: int) -> None
     summary = load_recent_price_summary(
         trade_version,
         complex_version,
+        market_scope,
         months=period_months[period_label],
     )
     if summary.empty:
@@ -1147,7 +1167,7 @@ def render_recent_price_search(trade_version: int, complex_version: int) -> None
     window_end = summary.attrs.get("window_end", summary.attrs.get("latest_month", "-"))
     window_label = window_end if window_start == window_end else f"{window_start} ~ {window_end}"
     st.caption(
-        f"{window_label} 계약분의 개별 실거래가를 단지별로 집계한 중앙값 기준입니다. "
+        f"{market_scope_label} · {window_label} 계약분의 개별 실거래가를 단지별로 집계한 중앙값 기준입니다. "
         "가격 범위의 최솟값과 최댓값을 모두 포함합니다."
     )
     st.caption("세대수·세대당 주차·연식 정보가 없는 단지는 검색 결과에서 제외됩니다.")
@@ -1155,6 +1175,11 @@ def render_recent_price_search(trade_version: int, complex_version: int) -> None
     median_prices = pd.to_numeric(summary["median_price_1m"], errors="coerce") / 100_000_000
     max_price = max(7.0, float(median_prices.max()))
     max_price = float((int(max_price * 10 + 9) // 10))
+    default_price_range = (
+        (5.5, min(7.0, max_price))
+        if market_scope == "busan"
+        else (0.0, max_price)
+    )
     households = pd.to_numeric(summary["households"], errors="coerce")
     max_households = max(100, int(households.max() // 100 * 100 + 100))
     parking = pd.to_numeric(summary["parking_per_household"], errors="coerce")
@@ -1167,7 +1192,7 @@ def render_recent_price_search(trade_version: int, complex_version: int) -> None
             "단지별 중앙 실거래가(억원)",
             min_value=0.0,
             max_value=max_price,
-            value=(5.5, min(7.0, max_price)),
+            value=default_price_range,
             step=0.1,
             help="예: 5.5~7.0 선택 시 중앙 실거래가가 5억 5천만원 이상 7억원 이하인 단지를 찾습니다.",
         )
@@ -1306,11 +1331,27 @@ if menu == "학교 상세":
         render_school_detail(school_data, school_snapshot_version)
     st.stop()
 if menu == "실거래가 단지 검색":
-    recent_trade_path = ROOT / "data" / "interim" / "trade_matched.parquet"
-    recent_complex_path = PROCESSED / "busan_complex_summary.csv"
+    market_scope_label, market_scope = select_market_scope()
+    metropolitan_trade_path = ROOT / "data" / "interim" / "transactions_master.parquet"
+    recent_trade_path = (
+        metropolitan_trade_path
+        if metropolitan_trade_path.exists()
+        else ROOT / "data" / "interim" / "trade_matched.parquet"
+    )
+    metropolitan_complex_path = PROCESSED / "metropolitan_complex_summary.csv"
+    recent_complex_path = (
+        metropolitan_complex_path
+        if metropolitan_complex_path.exists()
+        else PROCESSED / "busan_complex_summary.csv"
+    )
     trade_version = recent_trade_path.stat().st_mtime_ns if recent_trade_path.exists() else 0
     complex_version = recent_complex_path.stat().st_mtime_ns if recent_complex_path.exists() else 0
-    render_recent_price_search(trade_version, complex_version)
+    render_recent_price_search(
+        trade_version,
+        complex_version,
+        market_scope_label,
+        market_scope,
+    )
     st.stop()
 
 market_scope_label, market_scope = select_market_scope()

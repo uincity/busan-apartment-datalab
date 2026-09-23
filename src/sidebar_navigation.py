@@ -3,6 +3,10 @@ from __future__ import annotations
 import streamlit as st
 
 
+CREATOR_LABEL = "제작자: 열심남"
+CREATOR_URL = "https://uincity.github.io/"
+
+
 NAVIGATION_GROUPS = [
     (
         "시장 분석",
@@ -110,6 +114,12 @@ def render_sidebar_navigation(default: str = "부산 Overview") -> str:
 
     st.html(_navigation_css(MENU_KEYS[current]))
     with st.sidebar:
+        st.link_button(
+            CREATOR_LABEL,
+            CREATOR_URL,
+            icon=":material/open_in_new:",
+            width="stretch",
+        )
         st.caption("MENU")
         with st.container(key="sidebar_navigation", gap="xxsmall"):
             for group_index, (group_label, items) in enumerate(NAVIGATION_GROUPS):

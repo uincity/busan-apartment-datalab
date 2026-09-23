@@ -33,6 +33,13 @@ def test_overview_prioritizes_map_and_keeps_status_in_popover():
     assert [item.value for item in app.sidebar.header].count("분석 필터") == 1
     assert [item.value for item in app.sidebar.caption].count("노후단지 Watch") == 0
     assert [item.label for item in app.sidebar.button].count("노후단지 Watch") == 1
+    creator_links = [
+        item for item in app.sidebar.get("link_button")
+        if item.label == "제작자: 열심남"
+    ]
+    assert len(creator_links) == 1
+    assert creator_links[0].url == "https://uincity.github.io/"
+    assert next(iter(app.sidebar.children.values())).type == "link_button"
     assert [item.type for item in app.sidebar.children.values()][-2:] == ["caption", "caption"]
 
 

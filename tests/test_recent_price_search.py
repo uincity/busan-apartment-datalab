@@ -110,3 +110,24 @@ def test_recent_price_filter_rejects_reversed_range(trades: pd.DataFrame, comple
             parking_range=(0.0, 2.0),
             age_range=(0, 30),
         )
+
+
+def test_recent_price_summary_keeps_gimhae_and_yangsan_complexes():
+    satellite_trades = pd.DataFrame([
+        ("G1", "2026-09", 400_000_000, "김해단지", "김해시", "외동", False, True),
+        ("Y1", "2026-09", 500_000_000, "양산단지", "양산시", "물금읍가촌리", False, True),
+    ], columns=[
+        "internal_complex_id", "year_month", "deal_amount_krw", "complex_name",
+        "sigungu", "dong", "is_cancelled", "provisional",
+    ])
+    satellite_complexes = pd.DataFrame([
+        {"internal_complex_id": "G1", "complex_name": "김해단지", "sigungu": "김해시", "dong": "외동",
+         "households": 500, "parking_per_household": 1.0, "apartment_age": 10, "road_address": "김해로 1"},
+        {"internal_complex_id": "Y1", "complex_name": "양산단지", "sigungu": "양산시", "dong": "물금읍가촌리",
+         "households": 600, "parking_per_household": 1.1, "apartment_age": 8, "road_address": "양산로 1"},
+    ])
+
+    summary = build_recent_price_summary(satellite_trades, satellite_complexes)
+
+    assert set(summary["sigungu"]) == {"김해시", "양산시"}
+    assert summary["transaction_count_1m"].sum() == 2

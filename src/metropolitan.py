@@ -100,9 +100,21 @@ def build_metropolitan() -> dict[str, Any]:
         trades, kapt,
         fuzzy_threshold=float(settings["matching"]["fuzzy_threshold"]),
         manual_review_threshold=float(settings["matching"]["manual_review_threshold"]),
+        strict_legal_address_regions=settings["matching"].get("strict_legal_address_regions", []),
     )
     panel = build_monthly_panel(matched, kapt, low_sample_threshold=int(settings["project"]["low_sample_threshold"]))
     complexes = build_complex_summary(panel)
+    from .pipeline import _build_rent_outputs
+    rent_stats = _build_rent_outputs(
+        raw,
+        interim,
+        processed,
+        kapt,
+        matched,
+        settings,
+        region_selector="all",
+        namespace="metropolitan",
+    )
     write_parquet(kapt, interim / "apartment_master.parquet")
     write_parquet(trades_all, interim / "transactions_clean_master.parquet")
     write_parquet(matched, interim / "transactions_master.parquet")
@@ -114,6 +126,12 @@ def build_metropolitan() -> dict[str, Any]:
     quality = quality_report(kapt, trades_all)
     scope.to_csv(reports / "metropolitan_scope_report.csv", index=False, encoding="utf-8-sig")
     quality.to_csv(reports / "metropolitan_quality_report.csv", index=False, encoding="utf-8-sig")
-    summary = {"apartments": len(kapt), "transactions": len(matched), "matching": rates, "scope": scope.to_dict("records")}
+    summary = {
+        "apartments": len(kapt),
+        "transactions": len(matched),
+        "matching": rates,
+        "scope": scope.to_dict("records"),
+        "rent": rent_stats,
+    }
     (reports / "metropolitan_build_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     return summary

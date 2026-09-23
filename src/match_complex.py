@@ -3,7 +3,8 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
-from typing import Any
+from pathlib import Path
+from typing import Any, Collection
 
 import pandas as pd
 
@@ -11,6 +12,7 @@ from .clean_trade import normalize_complex_name
 
 
 LOGGER = logging.getLogger(__name__)
+DEFAULT_MANUAL_MATCHES_PATH = Path(__file__).resolve().parents[1] / "config" / "manual_complex_matches.csv"
 
 try:
     from rapidfuzz import fuzz, process
@@ -26,6 +28,20 @@ except ImportError:  # 개발 초기 최소 환경에서도 명확히 동작하�
 def normalize_address(value: Any) -> str:
     text = "" if pd.isna(value) else str(value).strip().lower()
     return re.sub(r"[^0-9a-z\uac00-\ud7a3]", "", text)
+
+
+def normalize_admin_dong(value: Any, legal_address: Any = None) -> str:
+    """Normalize rural 읍/면+리 names using the full legal address when available."""
+    if pd.notna(legal_address):
+        legal_text = re.sub(r"\s+", " ", str(legal_address).strip())
+        rural = re.search(
+            r"([0-9A-Za-z\uac00-\ud7a3\u00b7.]+(?:읍|면))\s+"
+            r"([0-9A-Za-z\uac00-\ud7a3\u00b7.]+리)(?:\s|$)",
+            legal_text,
+        )
+        if rural:
+            return normalize_address(rural.group(1) + rural.group(2))
+    return normalize_address(value)
 
 
 def normalize_lot_number(value: Any) -> str:
@@ -135,6 +151,27 @@ def _internal_id(row: pd.Series) -> str:
     return "TRADE_" + hashlib.sha1(value.encode("utf-8")).hexdigest()[:12].upper()
 
 
+def load_manual_matches(path: Path | None = None) -> pd.DataFrame:
+    source = path or DEFAULT_MANUAL_MATCHES_PATH
+    columns = ["region_code", "trade_complex_name", "dong", "jibun", "kapt_code", "reason"]
+    if not source.exists():
+        return pd.DataFrame(columns=columns)
+    frame = pd.read_csv(source, dtype="string").fillna("")
+    missing = set(columns[:-1]).difference(frame.columns)
+    if missing:
+        raise ValueError(f"수동 매핑 파일 필수 컬럼 누락: {sorted(missing)}")
+    if "reason" not in frame:
+        frame["reason"] = ""
+    frame["region_norm"] = frame["region_code"].astype(str).str.extract(r"(\d{5})", expand=False).fillna("")
+    frame["name_norm"] = frame["trade_complex_name"].map(normalize_complex_name)
+    frame["dong_norm"] = frame["dong"].map(normalize_admin_dong)
+    frame["jibun_norm"] = frame["jibun"].map(normalize_lot_number)
+    key = ["region_norm", "name_norm", "dong_norm", "jibun_norm"]
+    if frame.duplicated(key).any():
+        raise ValueError("수동 매핑 파일에 중복 거래 단지 키가 있습니다.")
+    return frame
+
+
 def matching_rates(log: pd.DataFrame, kapt: pd.DataFrame) -> dict[str, float]:
     """Calculate matching diagnostics from a complete complex-level match log."""
     if log.empty:
@@ -170,6 +207,8 @@ def match_complexes(
     *,
     fuzzy_threshold: float = 75,
     manual_review_threshold: float = 90,
+    manual_matches: pd.DataFrame | None = None,
+    strict_legal_address_regions: Collection[str] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, float]]:
     if trade.empty:
         return trade.copy(), pd.DataFrame(), {
@@ -182,7 +221,12 @@ def match_complexes(
         if "complex_name_normalized" not in frame:
             frame["complex_name_normalized"] = frame["complex_name"].map(normalize_complex_name)
         frame["sigungu_norm"] = frame.get("sigungu", pd.Series(index=frame.index, dtype="object")).map(normalize_address)
-        frame["dong_norm"] = frame.get("dong", pd.Series(index=frame.index, dtype="object")).map(normalize_address)
+        dong_values = frame.get("dong", pd.Series(index=frame.index, dtype="object"))
+        legal_values = frame.get("legal_address", pd.Series(index=frame.index, dtype="object"))
+        frame["dong_norm"] = [
+            normalize_admin_dong(dong, legal)
+            for dong, legal in zip(dong_values, legal_values)
+        ]
         frame["jibun_norm"] = frame.get("jibun", pd.Series(index=frame.index, dtype="object")).map(normalize_lot_number)
         frame["region_norm"] = frame.get(
             "region_code", frame.get("lawd_cd", pd.Series(index=frame.index, dtype="object"))
@@ -192,6 +236,21 @@ def match_complexes(
     if not region_aware:
         complexes["region_norm"] = ""
         k["region_norm"] = ""
+
+    manual = load_manual_matches() if manual_matches is None else manual_matches.copy()
+    if not manual.empty and "region_norm" not in manual:
+        manual["region_norm"] = manual["region_code"].astype(str).str.extract(r"(\d{5})", expand=False).fillna("")
+        manual["name_norm"] = manual["trade_complex_name"].map(normalize_complex_name)
+        manual["dong_norm"] = manual["dong"].map(normalize_admin_dong)
+        manual["jibun_norm"] = manual["jibun"].map(normalize_lot_number)
+    manual_lookup = {
+        (str(item.region_norm), str(item.name_norm), str(item.dong_norm), str(item.jibun_norm)):
+        (str(item.kapt_code), str(getattr(item, "reason", "")))
+        for item in manual.itertuples(index=False)
+    }
+    strict_regions = {
+        str(region).strip() for region in (strict_legal_address_regions or []) if str(region).strip()
+    }
 
     # 전월세 API의 roadnm은 매매 API와 달리 "수영로 261"처럼 건물번호까지
     # 포함하는 경우가 있다. 도로명과 번호를 먼저 분리하고, 별도 번호 필드가
@@ -229,11 +288,44 @@ def match_complexes(
         name = row["complex_name_normalized"]
         match_row: pd.Series | None = None
         method, score, name_similarity, candidate_count = "unmatched", 0.0, 0.0, 0
+        manual_reason = ""
+        strict_legal_address = str(row["region_norm"]) in strict_regions
+        manual_key = (
+            str(row["region_norm"]), str(name), str(row["dong_norm"]), str(row["jibun_norm"])
+        )
+        manual_target = manual_lookup.get(manual_key)
+        if manual_target:
+            target_code, manual_reason = manual_target
+            target = k.loc[k["kapt_code"].astype(str).eq(target_code)]
+            if len(target) != 1:
+                raise ValueError(
+                    f"수동 매핑 K-apt 코드가 없거나 중복입니다: {target_code} rows={len(target)}"
+                )
+            match_row = target.iloc[0]
+            if strict_legal_address and (
+                not row["legal_address_key"]
+                or match_row["legal_address_key"] != row["legal_address_key"]
+            ):
+                raise ValueError(
+                    "수동 매핑의 법정동·지번이 실거래 주소와 다릅니다: "
+                    f"{target_code} ({row['legal_address_key']} != {match_row['legal_address_key']})"
+                )
+            method, score, candidate_count = "manual_override", 100.0, 1
+            name_similarity = float(fuzz.ratio(name, match_row["complex_name_normalized"])) if name else 0.0
         road_candidates = k[k["road_address_key"].eq(row["road_address_key"])] if row["road_address_key"] else k.iloc[0:0]
         legal_candidates = k[k["legal_address_key"].eq(row["legal_address_key"])] if row["legal_address_key"] else k.iloc[0:0]
+        if strict_legal_address:
+            if row["legal_address_key"]:
+                road_candidates = road_candidates[
+                    road_candidates["legal_address_key"].eq(row["legal_address_key"])
+                ]
+            else:
+                road_candidates = k.iloc[0:0]
         common = road_candidates.loc[road_candidates.index.intersection(legal_candidates.index)]
 
-        if not common.empty:
+        if match_row is not None:
+            pass
+        elif not common.empty:
             match_row, method, score, name_similarity, candidate_count = _best_name_candidate(
                 common, name,
                 unique_method="road_legal_address_exact",
@@ -260,6 +352,10 @@ def match_complexes(
 
         if match_row is None and method != "address_conflict" and row["road_main_key"]:
             candidates = k[k["road_main_key"].eq(row["road_main_key"])]
+            if strict_legal_address:
+                candidates = candidates[
+                    candidates["legal_address_key"].eq(row["legal_address_key"])
+                ] if row["legal_address_key"] else k.iloc[0:0]
             match_row, method, score, name_similarity, candidate_count = _best_name_candidate(
                 candidates, name,
                 unique_method="road_address_main",
@@ -269,6 +365,10 @@ def match_complexes(
             )
         if match_row is None and method != "address_conflict" and row["lot_main_key"]:
             candidates = k[k["lot_main_key"].eq(row["lot_main_key"])]
+            if strict_legal_address:
+                candidates = candidates[
+                    candidates["legal_address_key"].eq(row["legal_address_key"])
+                ] if row["legal_address_key"] else k.iloc[0:0]
             match_row, method, score, name_similarity, candidate_count = _best_name_candidate(
                 candidates, name,
                 unique_method="legal_address_main",
@@ -283,6 +383,10 @@ def match_complexes(
             ]
             if row["region_norm"]:
                 candidates = candidates[candidates["region_norm"].eq(row["region_norm"])]
+            if strict_legal_address:
+                candidates = candidates[
+                    candidates["legal_address_key"].eq(row["legal_address_key"])
+                ] if row["legal_address_key"] else k.iloc[0:0]
             if not candidates.empty and name:
                 scores = candidates["complex_name_normalized"].map(lambda candidate: fuzz.ratio(name, candidate))
                 best_index = scores.idxmax()
@@ -313,11 +417,13 @@ def match_complexes(
                 "candidate_count": candidate_count,
                 "trade_road_address_key": row.get("road_address_key"),
                 "trade_legal_address_key": row.get("legal_address_key"),
+                "legal_address_policy": "strict_full_lot" if strict_legal_address else "standard",
                 "manual_review": (
                     method in {"unmatched", "address_conflict"}
                     or score < manual_review_threshold
                     or single_address_low_name
                 ),
+                "manual_reason": manual_reason,
             }
         )
         if index % 500 == 0 or index == complex_count:

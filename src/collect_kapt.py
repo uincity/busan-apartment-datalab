@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import math
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
@@ -17,6 +18,24 @@ from .utils import request_with_retry, write_parquet
 
 
 MINIMUM_REAL_KAPT_ROWS = 100
+
+
+@dataclass
+class _RequestPacer:
+    """Keep K-apt calls below the public gateway's per-second limit."""
+
+    interval_seconds: float
+    last_started_at: float | None = None
+
+    def wait(self) -> None:
+        if self.interval_seconds <= 0:
+            return
+        now = time.monotonic()
+        if self.last_started_at is not None:
+            remaining = self.interval_seconds - (now - self.last_started_at)
+            if remaining > 0:
+                time.sleep(remaining)
+        self.last_started_at = time.monotonic()
 
 
 def _resolved_households(frame: pd.DataFrame) -> pd.Series:
@@ -86,21 +105,35 @@ def _paged_json(
     settings: dict[str, Any],
     session: requests.Session,
     logger: logging.Logger,
+    pacer: _RequestPacer | None = None,
+    empty_response_retries: int = 0,
 ) -> list[dict[str, Any]]:
     cfg = settings["kapt_api"]
     page, rows = 1, []
     while True:
         page_params = {**params, "pageNo": page, "numOfRows": int(cfg["num_rows"]), "_type": "json"}
-        response = request_with_retry(
-            session,
-            url,
-            params=page_params,
-            timeout=float(cfg["timeout"]),
-            max_retries=int(cfg["max_retries"]),
-            backoff_factor=float(cfg["backoff_factor"]),
-            logger=logger,
-        )
-        page_rows, total = _json_body(response)
+        empty_attempt = 0
+        while True:
+            if pacer is not None:
+                pacer.wait()
+            response = request_with_retry(
+                session,
+                url,
+                params=page_params,
+                timeout=float(cfg["timeout"]),
+                max_retries=int(cfg["max_retries"]),
+                backoff_factor=float(cfg["backoff_factor"]),
+                logger=logger,
+            )
+            page_rows, total = _json_body(response)
+            if page_rows or empty_attempt >= empty_response_retries:
+                break
+            empty_attempt += 1
+            logger.warning(
+                "K-apt empty response retry url=%s page=%s attempt=%s",
+                url.rsplit("/", 1)[-1], page, empty_attempt,
+            )
+            time.sleep(float(cfg["backoff_factor"]) * (2 ** (empty_attempt - 1)))
         rows.extend(page_rows)
         if not page_rows or page >= max(1, math.ceil(total / int(cfg["num_rows"]))):
             return rows
@@ -129,9 +162,13 @@ def _collect_kapt_legacy(*, force: bool = False) -> dict[str, int | str]:
     basis_url = f"{cfg['basis_base_url'].rstrip('/')}/{cfg['basis_operation']}"
     detail_url = f"{cfg['basis_base_url'].rstrip('/')}/{cfg['detail_operation']}"
     rows, failed_basic, failed_detail = [], 0, 0
+    pacer = _RequestPacer(float(cfg.get("request_interval_seconds", 0)))
     with requests.Session() as session:
         decoded_key = unquote(key)
-        complexes = _paged_json(list_url, {"serviceKey": decoded_key, "sidoCode": "26"}, settings, session, log)
+        complexes = _paged_json(
+            list_url, {"serviceKey": decoded_key, "sidoCode": "26"}, settings, session, log,
+            pacer=pacer,
+        )
         for index, item in enumerate(complexes, start=1):
             code = item.get("kaptCode") or item.get("kaptcode")
             basic_item: dict[str, Any] = {}
@@ -141,7 +178,8 @@ def _collect_kapt_legacy(*, force: bool = False) -> dict[str, int | str]:
                     basic = _paged_json(
                         basis_url,
                         {cfg.get("basis_service_key_param", "serviceKey"): decoded_key, "kaptCode": code},
-                        settings, session, log,
+                        settings, session, log, pacer=pacer,
+                        empty_response_retries=int(cfg.get("empty_response_retries", 0)),
                     )
                     basic_item = basic[0] if basic else {}
                 except Exception as exc:
@@ -151,7 +189,8 @@ def _collect_kapt_legacy(*, force: bool = False) -> dict[str, int | str]:
                     detailed = _paged_json(
                         detail_url,
                         {cfg.get("detail_service_key_param", "ServiceKey"): decoded_key, "kaptCode": code},
-                        settings, session, log,
+                        settings, session, log, pacer=pacer,
+                        empty_response_retries=int(cfg.get("empty_response_retries", 0)),
                     )
                     detailed_item = detailed[0] if detailed else {}
                 except Exception as exc:
@@ -207,6 +246,20 @@ def _filter_region_complexes(complexes: list[dict[str, Any]], region: RegionConf
     ]
 
 
+def _regions_with_reported_failures(report_path: Path) -> set[str]:
+    if not report_path.exists():
+        return set()
+    try:
+        report = pd.read_csv(report_path)
+        failures = (
+            pd.to_numeric(report.get("failed_basic", 0), errors="coerce").fillna(0)
+            + pd.to_numeric(report.get("failed_detail", 0), errors="coerce").fillna(0)
+        )
+        return set(report.loc[failures.gt(0), "region"].dropna().astype(str))
+    except (KeyError, OSError, ValueError):
+        return set()
+
+
 def _collect_region_kapt(
     region: RegionConfig,
     complexes: list[dict[str, Any]],
@@ -216,6 +269,7 @@ def _collect_region_kapt(
     settings: dict[str, Any],
     session: requests.Session,
     log: logging.Logger,
+    pacer: _RequestPacer,
 ) -> dict[str, Any]:
     cfg = settings["kapt_api"]
     basis_url = f"{cfg['basis_base_url'].rstrip('/')}/{cfg['basis_operation']}"
@@ -227,7 +281,8 @@ def _collect_region_kapt(
     rows: list[dict[str, Any]] = existing_valid.to_dict("records")
     completed_codes = set(existing_valid.get("kaptCode", existing_valid.get("kaptcode", pd.Series(dtype=str))).astype(str))
     failed_basic = failed_detail = 0
-    for index, item in enumerate(_filter_region_complexes(complexes, region), start=1):
+    region_complexes = _filter_region_complexes(complexes, region)
+    for index, item in enumerate(region_complexes, start=1):
         code = item.get("kaptCode") or item.get("kaptcode")
         if str(code) in completed_codes:
             continue
@@ -238,7 +293,8 @@ def _collect_region_kapt(
                 basic = _paged_json(
                     basis_url,
                     {cfg.get("basis_service_key_param", "serviceKey"): decoded_key, "kaptCode": code},
-                    settings, session, log,
+                    settings, session, log, pacer=pacer,
+                    empty_response_retries=int(cfg.get("empty_response_retries", 0)),
                 )
                 basic_item = basic[0] if basic else {}
                 if not basic:
@@ -250,7 +306,8 @@ def _collect_region_kapt(
                 detail = _paged_json(
                     detail_url,
                     {cfg.get("detail_service_key_param", "ServiceKey"): decoded_key, "kaptCode": code},
-                    settings, session, log,
+                    settings, session, log, pacer=pacer,
+                    empty_response_retries=int(cfg.get("empty_response_retries", 0)),
                 )
                 detailed_item = detail[0] if detail else {}
                 if not detail:
@@ -277,6 +334,7 @@ def _collect_region_kapt(
     parking_underground = pd.to_numeric(frame.get("kaptdPcnt", empty), errors="coerce")
     quality = {
         "region": region.key,
+        "listed_rows": len(region_complexes),
         "collected_rows": len(frame),
         "unique_kapt_codes": int(frame[code_col].nunique()),
         "duplicate_kapt_codes": int(frame[code_col].duplicated().sum()),
@@ -303,7 +361,12 @@ def collect_kapt(*, force: bool = False, region: str = "busan", dry_run: bool = 
     selected = select_region_configs(region)
     raw_dir = Path(settings["paths"]["raw"]) / "kapt"
     targets = {item.key: raw_dir / item.kapt_file for item in selected}
-    pending = [item for item in selected if force or not _usable_kapt_cache(targets[item.key])]
+    report_path = Path(settings["paths"]["reports"]) / "tables" / "kapt_collection_quality.csv"
+    failed_regions = _regions_with_reported_failures(report_path)
+    pending = [
+        item for item in selected
+        if force or item.key in failed_regions or not _usable_kapt_cache(targets[item.key])
+    ]
     if dry_run:
         return {
             "region": region,
@@ -325,15 +388,21 @@ def collect_kapt(*, force: bool = False, region: str = "busan", dry_run: bool = 
     decoded_key = unquote(key)
     results: dict[str, dict[str, Any]] = {}
     lists_by_sido: dict[str, list[dict[str, Any]]] = {}
+    pacer = _RequestPacer(float(cfg.get("request_interval_seconds", 0)))
     with requests.Session() as session:
-        for current in pending:
+        for region_index, current in enumerate(pending):
+            if region_index:
+                cooldown = float(cfg.get("region_cooldown_seconds", 0))
+                if cooldown > 0:
+                    log.info("K-apt region cooldown seconds=%s next=%s", cooldown, current.key)
+                    time.sleep(cooldown)
             if current.sido_code not in lists_by_sido:
                 province_rows: list[dict[str, Any]] = []
                 for attempt in range(1, int(cfg["max_retries"]) + 1):
                     province_rows = _paged_json(
                         list_url,
                         {"serviceKey": decoded_key, "sidoCode": current.sido_code},
-                        settings, session, log,
+                        settings, session, log, pacer=pacer,
                     )
                     if _filter_region_complexes(province_rows, current):
                         break
@@ -348,9 +417,9 @@ def collect_kapt(*, force: bool = False, region: str = "busan", dry_run: bool = 
                 settings=settings,
                 session=session,
                 log=log,
+                pacer=pacer,
             )
 
-    report_path = Path(settings["paths"]["reports"]) / "tables" / "kapt_collection_quality.csv"
     report_path.parent.mkdir(parents=True, exist_ok=True)
     prior = pd.read_csv(report_path) if report_path.exists() else pd.DataFrame()
     updated = pd.DataFrame(results.values())

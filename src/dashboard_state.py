@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pandas as pd
+
 
 DEFAULT_COMPARISON_COMPLEX_IDS = (
     "A10026094",
@@ -16,6 +18,37 @@ def default_comparison_ids(available_ids: list[str]) -> list[str]:
     """현재 필터에서 선택 가능한 기본 비교 단지 ID를 지정 순서로 반환한다."""
     available = set(available_ids)
     return [complex_id for complex_id in DEFAULT_COMPARISON_COMPLEX_IDS if complex_id in available]
+
+
+def complex_metadata_filter_mask(
+    complexes: pd.DataFrame,
+    household_range: tuple[int, int],
+    approval_year_range: tuple[int, int],
+    *,
+    include_trade_only: bool,
+) -> pd.Series:
+    """Apply K-apt metadata filters while optionally preserving trade-only complexes."""
+    households = pd.to_numeric(complexes.get("households"), errors="coerce")
+    years = pd.to_numeric(complexes.get("approval_year"), errors="coerce")
+    registered = households.between(*household_range) & years.between(*approval_year_range)
+    if not include_trade_only:
+        return registered.fillna(False)
+    trade_only = complexes["internal_complex_id"].astype(str).str.startswith("TRADE_")
+    return (registered | trade_only).fillna(False)
+
+
+def overview_map_focus_id(
+    market_scope: str,
+    requested_id: str,
+    available_ids: set[str],
+    default_id: str,
+) -> str:
+    """Use a 부산 focus only for 부산 scope; broader scopes must fit all coordinates."""
+    if market_scope != "busan":
+        return ""
+    if requested_id in available_ids:
+        return requested_id
+    return default_id if default_id in available_ids else ""
 
 
 def selected_complex_id(selection: Any) -> str | None:

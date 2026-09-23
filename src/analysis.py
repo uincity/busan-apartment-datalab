@@ -21,11 +21,14 @@ def build_complex_summary(panel: pd.DataFrame) -> pd.DataFrame:
     if panel.empty:
         return pd.DataFrame()
     latest = latest_rows(panel)
+    if "jibun" not in latest:
+        latest["jibun"] = pd.NA
     base = (
         latest.sort_values("year_month")
         .groupby("internal_complex_id", dropna=False)
         .agg(
             complex_name=("complex_name", "first"), sigungu=("sigungu", "first"), dong=("dong", "first"),
+            jibun=("jibun", "first"),
             sido=("sido", "first"), region_code=("region_code", "first"),
             region_key=("region_key", "first"), region_name=("region_name", "first"),
             region_level_1=("region_level_1", "first"), region_level_2=("region_level_2", "first"),

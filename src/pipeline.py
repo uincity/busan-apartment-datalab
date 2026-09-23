@@ -72,6 +72,7 @@ def _full_build() -> dict[str, int | float]:
         trade, kapt,
         fuzzy_threshold=float(settings["matching"]["fuzzy_threshold"]),
         manual_review_threshold=float(settings["matching"]["manual_review_threshold"]),
+        strict_legal_address_regions=settings["matching"].get("strict_legal_address_regions", []),
     )
     write_parquet(trade_all, Path(settings["paths"]["interim"]) / "trade_clean_all.parquet")
     write_parquet(enriched, Path(settings["paths"]["interim"]) / "trade_matched.parquet")
@@ -214,29 +215,37 @@ def _build_rent_outputs(
     kapt: pd.DataFrame,
     sales: pd.DataFrame,
     settings: dict,
+    *,
+    region_selector: str = "busan",
+    namespace: str = "",
 ) -> dict[str, int | float]:
     """전월세 원본이 있으면 전체 정제·매칭·전세가율 패널을 갱신한다."""
     rent_paths = sorted((raw_dir / "rent").glob("*/*.parquet"))
     raw_rent = _read_parquets(rent_paths)
+    regions = load_regions(region_selector).rename(columns={"lawd_cd": "lawd_cd_region"})
+    allowed_codes = set(regions["lawd_cd_region"].astype(str).str.zfill(5))
+    if not raw_rent.empty:
+        raw_rent["lawd_cd"] = raw_rent.get("lawd_cd", "").astype(str).str.zfill(5)
+        raw_rent = raw_rent[raw_rent["lawd_cd"].isin(allowed_codes)].copy()
     if raw_rent.empty:
         LOGGER.info("전월세 원본이 없어 임대차 산출물 생성을 건너뜁니다")
         return {"raw_rent_transactions": 0, "analysis_rent_transactions": 0}
 
     provisional_months = int(settings["project"]["provisional_months"])
-    raw_rent["lawd_cd"] = raw_rent.get("lawd_cd", "").astype(str).str.zfill(5)
     rent = clean_rent(raw_rent, provisional_months=provisional_months)
-    regions = load_regions().rename(columns={"lawd_cd": "lawd_cd_region"})
     rent = _merge_regions(rent, regions)
     _, rent_match_log, _ = match_complexes(
         rent,
         kapt,
         fuzzy_threshold=float(settings["matching"]["fuzzy_threshold"]),
         manual_review_threshold=float(settings["matching"]["manual_review_threshold"]),
+        strict_legal_address_regions=settings["matching"].get("strict_legal_address_regions", []),
     )
     rent_match_log, crosswalk_audit = align_rent_matches_to_sales(
         rent_match_log,
         sales,
         manual_review_threshold=float(settings["matching"]["manual_review_threshold"]),
+        strict_legal_address_regions=settings["matching"].get("strict_legal_address_regions", []),
     )
     match_columns = ["kapt_code", "internal_complex_id", "match_method", "match_score"]
     enriched_rent = rent.merge(
@@ -244,16 +253,24 @@ def _build_rent_outputs(
         on=MATCH_KEY,
         how="left",
     )
+    prefix = f"{namespace}_" if namespace else ""
     crosswalk_audit.to_csv(
-        processed / "apartment_rent_sale_crosswalk.csv", index=False, encoding="utf-8-sig"
+        processed / f"{prefix}apartment_rent_sale_crosswalk.csv", index=False, encoding="utf-8-sig"
     )
     legal_issues = cross_market_match_issues(sales, enriched_rent)
     legal_issues.insert(0, "issue_type", "legal_transaction_key")
-    road_issues = cross_market_road_issues(sales, enriched_rent)
+    strict_regions = {
+        str(region) for region in settings["matching"].get("strict_legal_address_regions", [])
+    }
+    road_sales = sales[~sales["lawd_cd"].astype(str).isin(strict_regions)] if strict_regions else sales
+    road_rents = enriched_rent[
+        ~enriched_rent["lawd_cd"].astype(str).isin(strict_regions)
+    ] if strict_regions else enriched_rent
+    road_issues = cross_market_road_issues(road_sales, road_rents)
     road_issues.insert(0, "issue_type", "road_address_key")
     cross_market_issues = pd.concat([legal_issues, road_issues], ignore_index=True)
     cross_market_issues.to_csv(
-        processed / "apartment_rent_cross_market_issues.csv", index=False, encoding="utf-8-sig"
+        processed / f"{prefix}apartment_rent_cross_market_issues.csv", index=False, encoding="utf-8-sig"
     )
     if not cross_market_issues.empty:
         raise RuntimeError(
@@ -261,16 +278,17 @@ def _build_rent_outputs(
             f"{len(cross_market_issues):,}개 단지키를 apartment_rent_cross_market_issues.csv에서 확인하세요."
         )
     rent_rates = matching_rates(rent_match_log, kapt)
-    write_parquet(rent, interim / "rent_clean.parquet")
-    write_parquet(enriched_rent, interim / "rent_matched.parquet")
-    rent_match_log.to_csv(processed / "apartment_rent_match_log.csv", index=False, encoding="utf-8-sig")
+    write_parquet(rent, interim / f"{prefix}rent_clean.parquet")
+    write_parquet(enriched_rent, interim / f"{prefix}rent_matched.parquet")
+    rent_match_log.to_csv(processed / f"{prefix}apartment_rent_match_log.csv", index=False, encoding="utf-8-sig")
     rent_match_log.loc[rent_match_log["manual_review"].fillna(True).astype(bool)].to_csv(
-        processed / "apartment_rent_match_manual_review.csv",
+        processed / f"{prefix}apartment_rent_match_manual_review.csv",
         index=False,
         encoding="utf-8-sig",
     )
     rent_panel = build_rent_monthly_panel(enriched_rent, sales)
-    write_parquet(rent_panel, processed / "busan_apartment_rent_monthly.parquet")
+    panel_name = "metropolitan_apartment_rent_monthly.parquet" if namespace else "busan_apartment_rent_monthly.parquet"
+    write_parquet(rent_panel, processed / panel_name)
     return {
         "raw_rent_transactions": len(raw_rent),
         "analysis_rent_transactions": len(enriched_rent),
@@ -341,6 +359,7 @@ def _incremental_build(rebuild_from: pd.Period) -> dict[str, int | float | str]:
             kapt,
             fuzzy_threshold=float(settings["matching"]["fuzzy_threshold"]),
             manual_review_threshold=float(settings["matching"]["manual_review_threshold"]),
+            strict_legal_address_regions=settings["matching"].get("strict_legal_address_regions", []),
         )
     previous_matched = pd.read_parquet(matched_path)
     historical_matched = previous_matched.loc[_periods(previous_matched).lt(rebuild_from)].copy()

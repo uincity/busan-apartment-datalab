@@ -1,0 +1,10 @@
+{
+  "run_id": "two",
+  "revision_reason": "수정",
+  "input_hash": "i",
+  "rules_hash": "r",
+  "master_hash": "m",
+  "executed_at": "2026-09-17",
+  "kind": "revision",
+  "path": "2026-08/two"
+}

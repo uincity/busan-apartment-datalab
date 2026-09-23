@@ -104,14 +104,24 @@ KAKAO_API_KEY=카카오_REST_API_키
 ```powershell
 .venv\Scripts\python.exe main.py collect-trade --region satellite --start 202607 --end 202609 --dry-run
 .venv\Scripts\python.exe main.py collect-trade --region satellite --start 202607 --end 202609 --force
+.venv\Scripts\python.exe main.py collect-rent --region satellite --start 202607 --end 202609 --force
 .venv\Scripts\python.exe main.py collect-kapt --region satellite
 .venv\Scripts\python.exe main.py build-metropolitan
+.venv\Scripts\python.exe scripts\build_satellite_unmatched_review.py
 ```
 
 K-apt API가 성공 코드와 빈 목록·빈 상세 본문을 반환하면 수집기는 재시도하며, 기존 유효
 지역 파일은 보존합니다. `metropolitan_scope_report.csv`에서 양산·김해 단지 수와 좌표 보유율,
 `metropolitan_quality_report.csv`에서 중복·주소·거래일·지역코드 오류를 확인합니다. 부산 전용
 `build`와 시가총액·학교 모델 산출물은 이 명령으로 변경되지 않습니다.
+광역 전월세 결과는 `metropolitan_rent_matched.parquet`과
+`metropolitan_apartment_rent_monthly.parquet`에 저장되며, 대시보드는 이 파일을 우선 사용합니다.
+
+양산·김해는 법정동과 지번 전체가 일치하는 경우에만 같은 단지로 매칭합니다. 검토 CSV가
+Excel 등에서 열려 있으면 갱신본은 `satellite_unmatched_priority_updated.csv`로 저장되므로,
+기존 파일을 닫은 뒤 명령을 다시 실행하면 원래 파일명으로 교체됩니다.
+빌드 후 `metropolitan_apartment_monthly.parquet`와 `metropolitan_complex_summary.csv`에서
+`TRADE_` 식별자 수가 검토표의 미매칭 표기 수와 같은지, 거래건수 합계가 누락되지 않았는지 확인합니다.
 
 아래 예시는 2026년 7월부터 9월까지 다시 수집하는 경우입니다. 실제 작업 월에 맞게 `--start`와 `--end`를 변경합니다.
 

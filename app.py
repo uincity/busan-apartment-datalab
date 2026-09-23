@@ -15,7 +15,13 @@ from src.apartment_ranking import (
 )
 from src.analysis import build_complex_summary, build_district_summary, build_dong_summary
 from src.config import load_settings
-from src.dashboard_state import default_comparison_ids, selected_complex_id, selected_pydeck_entity
+from src.dashboard_state import (
+    complex_metadata_filter_mask,
+    default_comparison_ids,
+    overview_map_focus_id,
+    selected_complex_id,
+    selected_pydeck_entity,
+)
 from src.data_update_status import SUMMARY_PATH, load_dashboard_summary
 from src.double_click_table import double_click_table
 from src.overview_map import (
@@ -97,6 +103,7 @@ PANEL_COLUMNS = [
     "complex_name",
     "sigungu",
     "dong",
+    "jibun",
     "sido",
     "region_code",
     "region_key",
@@ -129,6 +136,7 @@ COMPLEX_SUMMARY_SOURCE_COLUMNS = [
     "complex_name",
     "sigungu",
     "dong",
+    "jibun",
     "sido",
     "region_code",
     "region_key",
@@ -254,7 +262,8 @@ def load_overview_map_metrics(
 
 @st.cache_resource(show_spinner=False)
 def load_rent_panel() -> pd.DataFrame:
-    path = PROCESSED / "busan_apartment_rent_monthly.parquet"
+    metropolitan_path = PROCESSED / "metropolitan_apartment_rent_monthly.parquet"
+    path = metropolitan_path if metropolitan_path.exists() else PROCESSED / "busan_apartment_rent_monthly.parquet"
     if not path.exists():
         return pd.DataFrame(columns=RENT_PANEL_COLUMNS)
     return _optimize_panel_dtypes(pd.read_parquet(path, columns=RENT_PANEL_COLUMNS))
@@ -263,7 +272,8 @@ def load_rent_panel() -> pd.DataFrame:
 @st.cache_data(show_spinner="전월세 실거래를 불러오고 있습니다...", max_entries=16)
 def load_complex_rents(rent_version: int, complex_id: str) -> pd.DataFrame:
     _ = rent_version
-    path = ROOT / "data" / "interim" / "rent_matched.parquet"
+    metropolitan_path = ROOT / "data" / "interim" / "metropolitan_rent_matched.parquet"
+    path = metropolitan_path if metropolitan_path.exists() else ROOT / "data" / "interim" / "rent_matched.parquet"
     columns = [
         "internal_complex_id",
         "year_month",
@@ -718,7 +728,22 @@ def filter_data(panel: pd.DataFrame, complexes: pd.DataFrame) -> tuple[pd.DataFr
         help="초기 화면에는 2001년 이후 사용승인 단지만 표시됩니다.",
     )
 
-    base_mask = households.between(*household_range) & years.between(*approval_year_range)
+    has_satellite = complexes.get("is_satellite", pd.Series(False, index=complexes.index)).fillna(False).any()
+    has_busan = complexes.get("is_busan", pd.Series(False, index=complexes.index)).fillna(False).any()
+    include_trade_only = False
+    if has_satellite:
+        include_trade_only = st.sidebar.toggle(
+            "실거래 전용 단지 포함",
+            value=not has_busan,
+            key="filter_include_trade_only",
+            help="K-apt 동일 지번 단지가 없어 TRADE_ 식별자로 관리되는 단지를 세대수·연식 필터와 관계없이 포함합니다.",
+        )
+    base_mask = complex_metadata_filter_mask(
+        complexes,
+        household_range,
+        approval_year_range,
+        include_trade_only=include_trade_only,
+    )
     scoped = complexes[base_mask]
     district_options = sorted(scoped["sigungu"].dropna().unique())
     districts = st.sidebar.multiselect(
@@ -1390,6 +1415,12 @@ if menu == "부산 Overview":
     if not map_schools.empty:
         map_schools = map_schools[map_schools["coordinate_valid"]]
     located_complexes = filtered_complexes.dropna(subset=["latitude", "longitude"])
+    unlocated_trade_only_count = int(
+        (
+            filtered_complexes["internal_complex_id"].astype(str).str.startswith("TRADE_")
+            & filtered_complexes[["latitude", "longitude"]].isna().any(axis=1)
+        ).sum()
+    )
     if located_complexes.empty and map_schools.empty:
         st.warning(
             "현재 표시할 좌표가 없습니다. 아파트 좌표 또는 학교 snapshot을 확인해 주세요.",
@@ -1403,11 +1434,12 @@ if menu == "부산 Overview":
         )
         map_complexes["entity_type"] = "apartment"
         available_map_ids = set(map_complexes["internal_complex_id"].astype(str))
-        selected_map_focus_id = str(st.session_state.get("detail_complex_id", DEFAULT_MAP_FOCUS_ID))
-        if market_scope != "busan":
-            selected_map_focus_id = ""
-        if selected_map_focus_id not in available_map_ids:
-            selected_map_focus_id = DEFAULT_MAP_FOCUS_ID
+        selected_map_focus_id = overview_map_focus_id(
+            market_scope,
+            str(st.session_state.get("detail_complex_id", DEFAULT_MAP_FOCUS_ID)),
+            available_map_ids,
+            DEFAULT_MAP_FOCUS_ID,
+        )
         map_apartments = map_complexes if show_apartments else map_complexes.iloc[0:0]
         st.pydeck_chart(
             combined_pydeck_map(
@@ -1458,6 +1490,11 @@ if menu == "부산 Overview":
             st.info("시가총액 산출물이 없어 아파트를 최소 크기로 표시합니다.")
         if marker_size_mode == "최근 12개월 거래금액" and latest_trade_date is None:
             st.info("실거래 원장이 없어 거래금액을 표시할 수 없습니다.")
+        if unlocated_trade_only_count:
+            st.info(
+                f"실거래 전용 단지 {unlocated_trade_only_count:,}개는 K-apt 좌표가 없어 지도에서 제외되지만 "
+                "단지·법정동 필터와 아파트 상세에서는 조회할 수 있습니다."
+            )
         selected_school_id = str(st.session_state.get("selected_school_id", ""))
         selected_school = map_schools[map_schools["school_id"].astype(str).eq(selected_school_id)] if selected_school_id else pd.DataFrame()
         if not selected_school.empty:
@@ -1537,7 +1574,10 @@ elif menu == "아파트 상세":
     row = district_choices[district_choices["internal_complex_id"].astype(str).eq(selected_id)].iloc[0]
     selected_name = display_names[selected_id]
     st.subheader(selected_name)
-    st.caption(str(row.get("road_address", "")))
+    if str(selected_id).startswith("TRADE_"):
+        st.caption(f"K-apt 미등록 · {row.get('dong', '')} {row.get('jibun', '')}")
+    else:
+        st.caption(str(row.get("road_address", "")))
     cols = st.columns(4)
     metrics = [
         ("세대수", "-" if pd.isna(row['households']) else f"{row['households']:,.0f}"),
@@ -1650,7 +1690,12 @@ elif menu == "아파트 상세":
             width="stretch",
         )
 
-        rent_path = ROOT / "data" / "interim" / "rent_matched.parquet"
+        metropolitan_rent_path = ROOT / "data" / "interim" / "metropolitan_rent_matched.parquet"
+        rent_path = (
+            metropolitan_rent_path
+            if metropolitan_rent_path.exists()
+            else ROOT / "data" / "interim" / "rent_matched.parquet"
+        )
         rent_version = rent_path.stat().st_mtime_ns if rent_path.exists() else 0
         recent_rents = load_complex_rents(rent_version, str(complex_id))
         if not recent_rents.empty:

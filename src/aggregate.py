@@ -10,6 +10,8 @@ def build_monthly_panel(trade: pd.DataFrame, kapt: pd.DataFrame, *, low_sample_t
     if trade.empty:
         return pd.DataFrame()
     work = trade.copy()
+    if "jibun" not in work:
+        work["jibun"] = pd.NA
     work["internal_complex_id"] = work["internal_complex_id"].fillna(work["kapt_code"])
     dimensions = ["internal_complex_id", "year_month", "area_group"]
     panel = (
@@ -22,6 +24,7 @@ def build_monthly_panel(trade: pd.DataFrame, kapt: pd.DataFrame, *, low_sample_t
             median_price_per_3_3sqm=("price_per_3_3sqm", "median"),
             sigungu=("sigungu", "first"),
             dong=("dong", "first"),
+            jibun=("jibun", "first"),
             complex_name=("complex_name", "first"),
             sido=("sido", "first"),
             region_code=("region_code", "first"),

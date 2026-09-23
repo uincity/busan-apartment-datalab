@@ -66,6 +66,18 @@ def test_metropolitan_region_selector_supports_all_scopes():
         assert current.value == value
 
 
+def test_satellite_scope_includes_trade_only_complexes_by_default():
+    app = AppTest.from_file(str(APP_PATH), default_timeout=40).run()
+    region = next(widget for widget in app.sidebar.selectbox if widget.label == "지역")
+    region.set_value("김해").run()
+
+    assert not app.exception
+    trade_only_toggle = next(
+        widget for widget in app.sidebar.toggle if widget.label == "실거래 전용 단지 포함"
+    )
+    assert trade_only_toggle.value is True
+
+
 def test_market_cap_starts_without_trade_update_status_section():
     app = AppTest.from_file(str(APP_PATH), default_timeout=40).run()
     next(button for button in app.sidebar.button if button.label == "아파트 시가총액").click().run()

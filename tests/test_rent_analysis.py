@@ -184,6 +184,30 @@ def test_road_crosswalk_aligns_different_jibun_for_same_named_address():
     assert audit.loc[0, "crosswalk_key"] == "road_address"
 
 
+def test_strict_region_does_not_crosswalk_different_jibun_by_road_address():
+    rent_log = pd.DataFrame([{
+        "lawd_cd": "48250", "dong": "외동", "jibun": "705",
+        "complex_name_normalized": "주공1", "trade_complex_name": "주공1",
+        "trade_road_address_key": "48250|평전로|33", "kapt_code": None,
+        "internal_complex_id": "TRADE_RENT", "match_method": "unmatched",
+        "match_score": 0.0, "manual_review": True,
+    }])
+    sales = pd.DataFrame([{
+        "lawd_cd": "48250", "sigungu": "김해시", "dong": "외동", "jibun": "705-1",
+        "complex_name": "주공1", "complex_name_normalized": "주공1",
+        "road_name": "평전로", "road_main": 33, "road_sub": 0,
+        "kapt_code": None, "internal_complex_id": "TRADE_SALE",
+        "match_method": "unmatched", "match_score": 0.0,
+    }])
+
+    aligned, audit = align_rent_matches_to_sales(
+        rent_log, sales, strict_legal_address_regions=["48250", "48330"]
+    )
+
+    assert aligned.loc[0, "internal_complex_id"] == "TRADE_RENT"
+    assert audit.empty
+
+
 def test_road_validation_detects_different_ids_for_same_named_address():
     common = {
         "lawd_cd": "26140",

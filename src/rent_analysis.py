@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Collection
+
 import numpy as np
 import pandas as pd
 
@@ -20,11 +22,25 @@ def _normalise_match_keys(frame: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
+def _regional_road_keys(frame: pd.DataFrame, keys: pd.Series) -> pd.Series:
+    """Canonicalize road keys to lawd_cd|road|number across match-log/raw sources."""
+    text = keys.fillna("").astype(str)
+    suffix = text.str.split("|").map(
+        lambda parts: "|".join(parts[-2:]) if len(parts) >= 3 else ""
+    )
+    region = frame["lawd_cd"].fillna("").astype(str)
+    return pd.Series(
+        [f"{code}|{tail}" if code and tail else "" for code, tail in zip(region, suffix)],
+        index=frame.index,
+    )
+
+
 def align_rent_matches_to_sales(
     rent_match_log: pd.DataFrame,
     sales: pd.DataFrame,
     *,
     manual_review_threshold: float = 90,
+    strict_legal_address_regions: Collection[str] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """동일 거래 단지키의 전월세 ID를 검증된 매매 ID에 맞춘다.
 
@@ -83,9 +99,14 @@ def align_rent_matches_to_sales(
 
     # 지번이 서로 다르게 신고됐더라도 정규화 단지명과 도로명주소가 같으면
     # 동일 단지로 본다. 두 시장 모두에서 주소키당 ID가 하나인 경우에만 교정한다.
-    sale["trade_road_address_key"] = transaction_road_identity(sale)["road_address_key"]
+    sale["trade_road_address_key"] = _regional_road_keys(
+        sale, transaction_road_identity(sale)["road_address_key"]
+    )
     if "trade_road_address_key" not in joined:
         joined["trade_road_address_key"] = ""
+    joined["trade_road_address_key"] = _regional_road_keys(
+        joined, joined["trade_road_address_key"]
+    )
     road_keys = ["lawd_cd", "complex_name_normalized", "trade_road_address_key"]
     road_sale = sale[sale["trade_road_address_key"].fillna("").astype(str).ne("")].copy()
     road_counts = road_sale.groupby(road_keys, dropna=False, observed=True)["internal_complex_id"].nunique()
@@ -105,6 +126,11 @@ def align_rent_matches_to_sales(
     current_ids = joined["internal_complex_id"].fillna("").astype(str)
     road_sale_ids = joined["road_sale_internal_complex_id"].fillna("").astype(str)
     road_correction = road_sale_ids.ne("") & current_ids.ne(road_sale_ids)
+    strict_regions = {
+        str(region).strip() for region in (strict_legal_address_regions or []) if str(region).strip()
+    }
+    if strict_regions:
+        road_correction &= ~joined["lawd_cd"].astype(str).isin(strict_regions)
     road_audit = joined.loc[road_correction, MATCH_KEYS + [
         "trade_complex_name",
         "internal_complex_id",

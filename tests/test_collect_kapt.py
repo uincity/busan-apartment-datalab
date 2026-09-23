@@ -1,7 +1,15 @@
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
-from src.collect_kapt import _json_body, _resolved_households, _validate_kapt_frame
+from src.collect_kapt import (
+    _RequestPacer,
+    _json_body,
+    _regions_with_reported_failures,
+    _resolved_households,
+    _validate_kapt_frame,
+)
 
 
 class FakeResponse:
@@ -47,3 +55,28 @@ def test_validate_kapt_frame_rejects_demo_sized_result():
 
     with pytest.raises(RuntimeError, match="비정상적으로 적습니다"):
         _validate_kapt_frame(frame)
+
+
+def test_request_pacer_waits_for_remaining_interval(monkeypatch):
+    clock = iter([10.0, 10.0, 10.2, 10.8])
+    sleeps = []
+    monkeypatch.setattr("src.collect_kapt.time.monotonic", lambda: next(clock))
+    monkeypatch.setattr("src.collect_kapt.time.sleep", sleeps.append)
+    pacer = _RequestPacer(0.8)
+
+    pacer.wait()
+    pacer.wait()
+
+    assert sleeps == [pytest.approx(0.6)]
+    assert pacer.last_started_at == 10.8
+
+
+def test_regions_with_reported_failures(monkeypatch):
+    report = pd.DataFrame([
+        {"region": "yangsan", "failed_basic": 2, "failed_detail": 0},
+        {"region": "gimhae", "failed_basic": 0, "failed_detail": 0},
+    ])
+    monkeypatch.setattr("src.collect_kapt.Path.exists", lambda path: True)
+    monkeypatch.setattr("src.collect_kapt.pd.read_csv", lambda path: report)
+
+    assert _regions_with_reported_failures(Path("quality.csv")) == {"yangsan"}

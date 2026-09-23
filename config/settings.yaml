@@ -30,6 +30,9 @@ kapt_api:
   timeout: 30
   max_retries: 4
   backoff_factor: 1.5
+  request_interval_seconds: 0.8
+  region_cooldown_seconds: 5.0
+  empty_response_retries: 2
 
 kakao_geocoding:
   base_url: "https://dapi.kakao.com/v2/local/search/address.json"
@@ -42,6 +45,10 @@ kakao_geocoding:
 matching:
   fuzzy_threshold: 75
   manual_review_threshold: 90
+  # 양산·김해는 법정동과 지번 전체가 일치할 때만 같은 단지로 자동 매칭합니다.
+  strict_legal_address_regions:
+    - "48250"
+    - "48330"
 
 representative_score:
   households: 0.30

@@ -1,0 +1,14 @@
+{
+  "run_id": "ui-test",
+  "revision_reason": "",
+  "input_hash": "i",
+  "rules_hash": "r",
+  "master_hash": "m",
+  "executed_at": "2026-09-17",
+  "rules_version": "test",
+  "audit": {
+    "source_collected_at": null
+  },
+  "kind": "initial",
+  "path": "2026-08/ui-test"
+}

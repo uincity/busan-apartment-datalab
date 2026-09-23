@@ -58,18 +58,28 @@ python main.py collect-kapt --region satellite --dry-run
 python main.py collect-trade --region satellite --start 202001 --end 202609 --dry-run
 python main.py collect-kapt --region satellite
 python main.py collect-trade --region satellite --start 202001 --end 202609
+python main.py collect-rent --region satellite --start 202001 --end 202609
 python main.py build-metropolitan
 python main.py geocode-kapt --region satellite --retry-failed
+python scripts/build_satellite_unmatched_review.py
 ```
 
 `--region`은 `busan`, `yangsan`, `gimhae`, `satellite`, `all`을 지원합니다. 저장된 월·지역
 파일은 다시 호출하지 않으므로 같은 명령을 재실행해도 미수집 범위만 이어서 받습니다.
 광역생활권 빌드는 기존 부산 산출물을 덮어쓰지 않고 다음 병행 파일을 만듭니다.
 
+양산·김해 단지 매칭은 법정동과 지번(본번·부번) 전체가 일치해야 합니다. 도로명이나 단지명이
+같더라도 지번이 다르면 별도 단지로 유지하며, 수동 매핑도 이 검증을 통과해야 합니다.
+K-apt 동일 지번 단지가 없는 실거래 단지는 `TRADE_` 식별자로 월별 패널과 단지 요약에 보존됩니다.
+양산·김해 화면의 `실거래 전용 단지 포함` 필터는 기본으로 켜지며, 해당 단지는 세대수·연식
+필터와 관계없이 단지·법정동 필터와 상세 화면에서 조회할 수 있습니다.
+
 - `data/interim/apartment_master.parquet`
 - `data/interim/transactions_master.parquet`
 - `data/processed/metropolitan_apartment_monthly.parquet`
 - `data/processed/metropolitan_complex_summary.csv`
+- `data/interim/metropolitan_rent_matched.parquet`
+- `data/processed/metropolitan_apartment_rent_monthly.parquet`
 - `reports/tables/metropolitan_scope_report.csv`
 - `reports/tables/metropolitan_quality_report.csv`
 
@@ -203,6 +213,7 @@ busan_apartment_analysis/
 - 거래량이 적은 단지·면적그룹은 `low_sample_flag=True`이며 단일 거래로 추세를 판단하지 않습니다.
 - K-apt는 의무관리대상 중심이므로 소규모 단지 누락이 정상적으로 존재할 수 있습니다.
 - fuzzy 매칭 점수 90 미만 및 미매칭은 `manual_review=True`이며 `apartment_match_log.csv`에서 검토해야 합니다.
+- 검증된 예외 매핑은 `config/manual_complex_matches.csv`에 지역코드·실거래 단지명·법정동·지번·K-apt 코드를 기록합니다. 수동 매핑은 주소·명칭 자동 매칭보다 먼저 적용되며 사유가 매칭 로그에 남습니다.
 - 주소·필드명은 공급 API 개편의 영향을 받을 수 있습니다. 파서 별칭과 `settings.yaml` 엔드포인트를 먼저 갱신하세요.
 - 품질 보고서의 `REVIEW`는 자동 삭제 지시가 아니라 원본 확인 대상입니다.
 

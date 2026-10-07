@@ -93,18 +93,18 @@
   "dedup_policy": "one current snapshot per region/month; preserve occurrences within source; repeated batch inputs are idempotent",
   "source_collected_at": "2026-10-07T15:05:07+09:00",
   "collection_status": "complete",
-  "latest_month": "2026-08",
+  "latest_month": "2026-09",
   "targets": 805,
   "grades": {
-    "산정 불완전": 455,
-    "D": 198,
-    "C": 87,
-    "B": 36,
+    "산정 불완전": 459,
+    "D": 200,
+    "C": 82,
+    "B": 35,
     "A": 29
   },
   "master_rows": 3074,
   "confirmed_households": 528881,
   "total_households": 821186,
   "new_snapshots": 1,
-  "snapshot_months": 80
+  "snapshot_months": 81
 }

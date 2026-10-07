@@ -8,6 +8,9 @@ import json
 import os
 from pathlib import Path
 import shutil
+import sys
+from time import monotonic
+from typing import Callable
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -22,13 +25,84 @@ from .market_cap import (KEY, MASTER_COLUMNS, estimate_month, read_master, read_
 OUTPUT = ROOT / "data/processed/market_cap"
 
 
-def file_hash(paths: list[Path]) -> str:
+def _duration(seconds: float) -> str:
+    value = max(0, int(seconds))
+    hours, remainder = divmod(value, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+class ProgressReporter:
+    """Human-readable progress on stderr while keeping the final JSON on stdout."""
+
+    def __init__(self, *, enabled: bool = True, stream=None) -> None:
+        self.enabled = enabled
+        self.stream = stream or sys.stderr
+        self.started = monotonic()
+        self.phase_started = self.started
+        self.phase = ""
+        self.last_printed_at = 0.0
+        self.last_percent_bucket = -1
+
+    def start(self, phase: str, detail: str = "") -> None:
+        self.phase = phase
+        self.phase_started = monotonic()
+        self.last_printed_at = 0.0
+        self.last_percent_bucket = -1
+        suffix = f" — {detail}" if detail else ""
+        self._write(f"[{phase}] 시작{suffix}")
+
+    def update(self, current: int, total: int) -> None:
+        if not self.enabled:
+            return
+        now = monotonic()
+        percent = current / total * 100 if total else 100.0
+        bucket = int(percent // 5)
+        should_print = (
+            current in {0, total}
+            or bucket > self.last_percent_bucket
+            or now - self.last_printed_at >= 10
+        )
+        if not should_print:
+            return
+        phase_elapsed = now - self.phase_started
+        eta = phase_elapsed / current * (total - current) if current else None
+        eta_text = f" | 남은 시간 약 {_duration(eta)}" if eta is not None else ""
+        self._write(
+            f"[{self.phase}] {current:,}/{total:,} ({percent:5.1f}%)"
+            f" | 단계 경과 {_duration(phase_elapsed)}{eta_text}"
+        )
+        self.last_printed_at = now
+        self.last_percent_bucket = bucket
+
+    def done(self, detail: str = "") -> None:
+        elapsed = monotonic() - self.phase_started
+        suffix = f" — {detail}" if detail else ""
+        self._write(f"[{self.phase}] 완료 | 단계 경과 {_duration(elapsed)}{suffix}")
+
+    def message(self, message: str) -> None:
+        self._write(f"[시가총액 배치] {message}")
+
+    def _write(self, message: str) -> None:
+        if self.enabled:
+            total_elapsed = monotonic() - self.started
+            print(f"{message} | 전체 경과 {_duration(total_elapsed)}", file=self.stream, flush=True)
+
+
+def file_hash(
+    paths: list[Path], progress: Callable[[int, int], None] | None = None
+) -> str:
     h = hashlib.sha256()
-    for path in sorted(paths):
+    ordered = sorted(paths)
+    if progress:
+        progress(0, len(ordered))
+    for index, path in enumerate(ordered, start=1):
         h.update(path.name.encode())
         with path.open("rb") as stream:
             for block in iter(lambda: stream.read(1024 * 1024), b""):
                 h.update(block)
+        if progress:
+            progress(index, len(ordered))
     return h.hexdigest()
 
 
@@ -71,14 +145,22 @@ def snap_trade_areas_to_master(trades: pd.DataFrame, master: pd.DataFrame) -> pd
     return trades
 
 
-def load_trades(paths: list[Path], log_path: Path) -> tuple[pd.DataFrame, dict]:
+def load_trades(
+    paths: list[Path],
+    log_path: Path,
+    progress: Callable[[int, int], None] | None = None,
+) -> tuple[pd.DataFrame, dict]:
     frames = []
-    for path in paths:
+    if progress:
+        progress(0, len(paths))
+    for index, path in enumerate(paths, start=1):
         raw = pd.read_parquet(path)
         # A raw file is the latest full snapshot for one region/month, not an event log.
         # Preserve multiplicity inside it; source occurrence IDs allow traceable audit.
         raw["source_row_id"] = [f"{path.parent.name}/{path.stem}:{i}" for i in range(len(raw))]
         frames.append(raw)
+        if progress:
+            progress(index, len(paths))
     if not frames:
         raise ValueError("매매 원본이 없습니다. 원본 수집 후 배치를 실행하세요")
     raw = pd.concat(frames, ignore_index=True)
@@ -172,6 +254,8 @@ def save_month(output: Path, manifest: dict, month: str, totals: pd.DataFrame,
 
 
 def run(args) -> dict:
+    reporter = ProgressReporter(enabled=not getattr(args, "quiet", False))
+    reporter.start("설정·단지정보 준비")
     rules = read_rules(args.rules)
     complexes = load_complexes()
     complexes = complexes.loc[complexes.households.ge(rules["minimum_households"])].copy()
@@ -182,16 +266,24 @@ def run(args) -> dict:
         args.output.mkdir(parents=True, exist_ok=True)
         issues.to_csv(args.output / "validation_errors.csv", index=False, encoding="utf-8-sig")
         raise ValueError(f"마스터 오류 {len(issues)}건: {args.output / 'validation_errors.csv'}")
+    reporter.done(f"대상 단지 {len(complexes):,}개, 평형 마스터 {len(master):,}행")
     if args.validate_only:
         print(f"Master valid: {len(master)} rows; totals are checked per valuation month.")
         return {"master_rows": len(master)}
     raw_paths = sorted((ROOT / "data/raw/trade").glob("*/*.parquet"))
     log = ROOT / "data/processed/apartment_match_log.csv"
-    trades, audit = load_trades(raw_paths, log)
+    reporter.start("매매 원본 읽기", f"Parquet {len(raw_paths):,}개")
+    trades, audit = load_trades(raw_paths, log, reporter.update)
+    reporter.done(f"유효 거래 {audit['eligible_rows']:,}건")
+    reporter.start("거래 면적 정규화", f"유효 거래 {len(trades):,}건")
     trades = snap_trade_areas_to_master(trades, master)
+    reporter.done()
     rules_hash = file_hash([args.rules, Path(__file__).with_name("market_cap.py"), Path(__file__), Path(__file__).with_name("clean_trade.py")])
     master_hash = file_hash([args.master])
-    input_hash = file_hash(raw_paths + [log, ROOT / "data/interim/kapt_clean.parquet", ROOT / "data/raw/kapt/busan_complexes.parquet"])
+    hash_paths = raw_paths + [log, ROOT / "data/interim/kapt_clean.parquet", ROOT / "data/raw/kapt/busan_complexes.parquet"]
+    reporter.start("입력 파일 해시 계산", f"파일 {len(hash_paths):,}개")
+    input_hash = file_hash(hash_paths, reporter.update)
+    reporter.done()
     now = datetime.now(ZoneInfo("Asia/Seoul"))
     completed = str(pd.Period(now.date(), "M") - 1)
     months = [m for m in audit["raw_months"] if m <= completed]
@@ -216,8 +308,19 @@ def run(args) -> dict:
         for month in months:
             run_id = hashlib.sha256(f"{month}:{input_hash}:{rules_hash}:{master_hash}".encode()).hexdigest()[:24]
             if any(r["run_id"] == run_id for r in manifest["months"].get(month, [])):
+                reporter.message(f"{month}은 동일 입력 snapshot이 있어 산정을 건너뜁니다.")
                 continue
-            totals, detail = estimate_month(complexes, master, trades, month, rules, pd.Timestamp(audit["period_start"]))
+            reporter.start(f"{month} 시가총액 산정", f"대상 단지 {len(complexes):,}개")
+            totals, detail = estimate_month(
+                complexes,
+                master,
+                trades,
+                month,
+                rules,
+                pd.Timestamp(audit["period_start"]),
+                progress=reporter.update,
+            )
+            reporter.done(f"평형 결과 {len(detail):,}행")
             metadata = {
                 "month": month, "run_id": run_id, "input_hash": input_hash,
                 "rules_hash": rules_hash, "rules_version": rules["version"], "rules": rules,
@@ -226,7 +329,10 @@ def run(args) -> dict:
                 "history_label": "현재 확보 자료로 재구성한 과거 추정치",
                 "reporting_final": False,
             }
+            reporter.start(f"{month} snapshot 저장")
             changed += save_month(args.output, manifest, month, totals, detail, trades, metadata)
+            reporter.done()
+        reporter.start("이력·보조 보고서 생성")
         history = read_history(args.output, manifest)
         latest_month = history.month.max()
         latest = history.loc[history.month.eq(latest_month)]
@@ -240,11 +346,26 @@ def run(args) -> dict:
         # Observed areas are review aids ONLY; counts never become household weights.
         observed = trades.loc[trades.kapt_code.isin(complexes.kapt_code)].groupby(["kapt_code", "area_sqm"]).agg(transaction_count=("source_row_id", "size"), first_deal=("deal_date", "min"), last_deal=("deal_date", "max")).reset_index()
         observed.to_csv(args.output / "observed_areas.csv", index=False, encoding="utf-8-sig")
+        reporter.done(f"이력 {len(history):,}행")
         sensitivity = []
         for minimum in (2, 3, 5):
-            alternative, _ = estimate_month(complexes, master, trades, latest_month, {**rules, "minimum_transactions": minimum}, pd.Timestamp(audit["period_start"]))
+            reporter.start(
+                f"민감도 분석 최소거래 {minimum}건",
+                f"{latest_month}, 대상 단지 {len(complexes):,}개",
+            )
+            alternative, _ = estimate_month(
+                complexes,
+                master,
+                trades,
+                latest_month,
+                {**rules, "minimum_transactions": minimum},
+                pd.Timestamp(audit["period_start"]),
+                progress=reporter.update,
+            )
             counts = alternative.grade.value_counts().to_dict()
             sensitivity.append({"minimum_transactions": minimum, **{g: counts.get(g, 0) for g in ("A", "B", "C", "D", "산정 불완전")}})
+            reporter.done()
+        reporter.start("순위·감사 보고서 저장")
         pd.DataFrame(sensitivity).to_csv(args.output / "sensitivity.csv", index=False, encoding="utf-8-sig")
         ranked = rank_history(history)
         ranked.loc[ranked.month.eq(latest_month)].head(10).to_csv(args.output / "top10.csv", index=False, encoding="utf-8-sig")
@@ -254,6 +375,8 @@ def run(args) -> dict:
                   "total_households": int(latest.households.sum()), "new_snapshots": changed,
                   "snapshot_months": len(manifest["months"])}
         (args.output / "audit.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        reporter.done()
+        reporter.message("모든 작업이 완료되었습니다.")
         print(json.dumps(result, ensure_ascii=True, indent=2))
         return result
     finally:
@@ -270,6 +393,7 @@ def main():
     group.add_argument("--backfill", action="store_true")
     parser.add_argument("--reason", default="")
     parser.add_argument("--validate-only", action="store_true")
+    parser.add_argument("--quiet", action="store_true", help="진행률을 표시하지 않고 최종 JSON만 출력")
     run(parser.parse_args())
 
 

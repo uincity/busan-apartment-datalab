@@ -8,7 +8,7 @@ import pytest
 from src.clean_trade import clean_trade
 from src.market_cap import (MASTER_COLUMNS, TransactionMedian, estimate_month,
                             rank_history, validate_master)
-from src.market_cap_batch import (load_manifest, read_history, save_month,
+from src.market_cap_batch import (ProgressReporter, load_manifest, read_history, save_month,
                                   snap_trade_areas_to_master)
 
 
@@ -38,6 +38,35 @@ def test_6200_eok_and_weighted_household_value():
     assert total.iloc[0].per_household_krw == 620_000_000
     assert total.iloc[0].grade == "A"
     assert areas.contribution_krw.sum() == total.iloc[0].market_cap_krw
+
+
+def test_estimate_month_reports_complex_progress():
+    updates = []
+    complexes, master, trades = fixture_data()
+    estimate_month(
+        complexes,
+        master,
+        trades,
+        "2026-08",
+        {"minimum_transactions": 3},
+        pd.Timestamp("2020-01-01"),
+        progress=lambda current, total: updates.append((current, total)),
+    )
+    assert updates == [(0, 1), (1, 1)]
+
+
+def test_progress_reporter_uses_stderr_and_shows_percent(capsys):
+    reporter = ProgressReporter()
+    reporter.start("테스트 단계", "2건")
+    reporter.update(0, 2)
+    reporter.update(1, 2)
+    reporter.update(2, 2)
+    reporter.done()
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "[테스트 단계]" in captured.err
+    assert "1/2 ( 50.0%)" in captured.err
+    assert "남은 시간 약" in captured.err
 
 
 @pytest.mark.parametrize("dates,grade,window", [

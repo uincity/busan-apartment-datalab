@@ -1,11 +1,11 @@
 {
-  "raw_rows": 250438,
-  "cancelled_rows": 16262,
-  "unverified_mapping_rows": 43054,
-  "eligible_rows": 193966,
-  "same_terms_rows_preserved": 1524,
+  "raw_rows": 341897,
+  "cancelled_rows": 20553,
+  "unverified_mapping_rows": 51933,
+  "eligible_rows": 272719,
+  "same_terms_rows_preserved": 1924,
   "period_start": "2020-01-01",
-  "period_end": "2026-09-16",
+  "period_end": "2026-10-06",
   "raw_months": [
     "2020-01",
     "2020-02",
@@ -87,23 +87,24 @@
     "2026-06",
     "2026-07",
     "2026-08",
-    "2026-09"
+    "2026-09",
+    "2026-10"
   ],
   "dedup_policy": "one current snapshot per region/month; preserve occurrences within source; repeated batch inputs are idempotent",
-  "source_collected_at": "2026-09-17T10:46:21+09:00",
+  "source_collected_at": "2026-10-07T15:05:07+09:00",
   "collection_status": "complete",
   "latest_month": "2026-08",
-  "targets": 560,
+  "targets": 805,
   "grades": {
-    "산정 불완전": 210,
-    "D": 200,
-    "C": 86,
-    "B": 35,
+    "산정 불완전": 455,
+    "D": 198,
+    "C": 87,
+    "B": 36,
     "A": 29
   },
   "master_rows": 3074,
   "confirmed_households": 528881,
-  "total_households": 592879,
+  "total_households": 821186,
   "new_snapshots": 1,
   "snapshot_months": 80
 }

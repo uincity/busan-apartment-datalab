@@ -1,6 +1,6 @@
 # 웹서비스 데이터 갱신 운영 매뉴얼
 
-이 문서는 부산 아파트 분석 웹서비스에 다음 변경을 안전하게 반영하는 표준 절차를 설명합니다.
+이 문서는 부산·양산·김해 아파트 분석 웹서비스에 다음 변경을 반영하는 표준 절차를 설명합니다.
 
 - 국토교통부 아파트 매매 실거래 갱신
 - 국토교통부 아파트 전월세 실거래 갱신
@@ -18,7 +18,9 @@
 API 키·대상 월 확인
   → 최근 매매 원본 수집
   → 최근 전월세 원본 수집
+  → 월·지역별 수집 성공 확인
   → 정제·매칭·월 패널 생성(build)
+  → 광역생활권 매매·전월세 master 생성(build-metropolitan)
   → 필요 시 area_master 기반 KB 시가총액 배치
   → 실거래 기반 시가총액 배치
   → 테스트와 로컬 화면 확인
@@ -30,25 +32,30 @@ API 키·대상 월 확인
 
 ## 2. 갱신 유형별 필수 작업
 
-| 변경 내용 | `collect-*` | `build` | `market_cap_kb` | `market_cap_batch` |
-|---|---:|---:|---:|---:|
-| 최근 매매·전월세 갱신 | 필요 | 필요 | 불필요 | 필요 |
-| 매매만 갱신 | 필요 | 필요 | 불필요 | 필요 |
-| 전월세만 갱신 | 필요 | 필요 | 불필요 | 불필요 |
-| KB 가격만 갱신 | 불필요 | 불필요 | 필요 | 불필요 |
-| 평형별 세대수 마스터 갱신 | 불필요 | 불필요 | 필요 | 필요 |
-| 혼합단지 분양·임대 구분 갱신 | 불필요 | 불필요 | 필요 | 필요할 수 있음 |
-| K-apt 단지 원본 갱신 | 불필요 | 전체 빌드 필요 | 필요 | 필요 |
-| 시가총액 보정 정책 갱신 | 불필요 | 불필요 | 필요 | 불필요 |
+| 변경 내용 | 원본 수집 | `build` | `build-metropolitan` | KB 배치·동기화 | `market_cap_batch` |
+|---|---|---|---|---|---|
+| 최근 매매·전월세 갱신 | 매매·전월세 수집 명령 | 필요 | 필요 | 불필요 | 필요 |
+| 매매만 갱신 | `collect-trade` | 필요 | 필요 | 불필요 | 필요 |
+| 전월세만 갱신 | `collect-rent` | 필요 | 필요 | 불필요 | 불필요 |
+| KB 가격만 갱신 | area_master 측 KB 수집 | 불필요 | 불필요 | 필요 | 불필요 |
+| 평형별 세대수 마스터 갱신 | 불필요 | 불필요 | 불필요 | 필요 | 필요 |
+| 혼합단지 분양·임대 구분 갱신 | 불필요 | 불필요 | 불필요 | 필요 | 필요할 수 있음 |
+| K-apt 단지 원본 갱신 | `collect-kapt` | 전체 빌드 필요 | 필요 | KB 입력 영향 시 필요 | 부산 산정 대상 영향 시 필요 |
+| 시가총액 보정 정책 갱신 | 불필요 | 불필요 | 불필요 | 필요 | 평형 마스터도 변경 시 필요 |
+
+위 표는 광역생활권 파일을 사용하는 현재 앱 기준입니다. **광역 파일이 존재하면 부산 화면에서도 해당 파일을 우선 읽으므로,
+부산 원본만 갱신하더라도 `build-metropolitan`을 다시 실행해야 합니다.** 학교·Local Value·시가총액 모델의 검증 범위는 부산입니다.
 
 `market_cap_batch`는 매매 원본과 매매 단지 매칭 결과를 사용합니다. 따라서 매매 자료를 갱신한 경우 반드시 `build`가 성공한 뒤 실행합니다. 전월세 자료는 실거래 기반 시가총액 계산에 사용하지 않습니다.
 
 매매·전월세와 `area_master`를 한 번에 갱신하는 정기 작업의 명령 순서는 다음과 같습니다. 날짜와 배포본은 실제 작업 대상에 맞게 변경합니다.
 
 ```powershell
-.venv\Scripts\python.exe main.py collect-trade --start 202607 --end 202609 --force
-.venv\Scripts\python.exe main.py collect-rent --start 202607 --end 202609 --force
+.venv\Scripts\python.exe main.py collect-trade --region all --start 202607 --end 202610 --force
+.venv\Scripts\python.exe main.py collect-rent --region all --start 202607 --end 202610 --force
+# 두 수집 결과의 failed=0 및 모든 월·지역 성공을 확인한 뒤 진행
 .venv\Scripts\python.exe main.py build --incremental
+.venv\Scripts\python.exe main.py build-metropolitan
 .venv\Scripts\python.exe ..\area_master\scripts\run_market_cap_kb_batch.py
 .venv\Scripts\python.exe -m src.sync_area_master_market_cap
 .venv\Scripts\python.exe -m src.market_cap_batch --reason "월간 실거래 및 area_master 갱신"
@@ -87,11 +94,22 @@ KAKAO_API_KEY=카카오_REST_API_키
 
 실거래는 신고 지연, 취소, 정정이 발생하므로 정기 갱신 시 **현재 월과 직전 2개월**, 총 3개월을 다시 받는 것을 기본으로 합니다.
 
-예를 들어 2026년 9월에 작업하면 `202607`부터 `202609`까지 수집합니다. 시가총액 월별 산정은 진행 중인 현재 월을 제외하고 최근 종료 월까지만 생성합니다.
+이번 갱신 대상은 **2026년 7월~10월(`202607`~`202610`, 총 4개월)**입니다. 2026-10-07 기준 10월은 진행 중이며,
+실행 시점에 API에 공개된 신고 자료까지만 수집합니다. 이후 신고·정정·취소를 반영하려면 같은 범위를 다시 수집합니다.
+시가총액 월별 산정은 진행 중인 현재 월을 제외하므로 이번 작업의 최근 종료 월은 **2026-09**입니다.
+기본 배치는 자료가 있는 최근 종료 월 하나만 갱신하므로 7~8월 정정은 5.2절의 월 지정 재산정도 필요합니다.
+
+지역은 `--region all`로 **부산 16개 구·군(기장군 포함) + 양산시 + 김해시, 총 18개 지역**을 선택합니다.
+`--region`을 생략하면 부산만 수집합니다. `satellite`는 양산·김해만, `yangsan`과 `gimhae`는 각 도시만 선택합니다.
+전세는 `collect-rent`에서 월세와 함께 수집하고 정제 단계에서 구분합니다.
 
 ### 3.4 원본 보존
 
-`--force`는 지정한 `data/raw/trade` 또는 `data/raw/rent` 파일을 새 API 응답으로 교체합니다. 원본은 Git 추적 대상이 아니므로, 중요한 운영 갱신 전에는 `data/raw`를 별도 저장소나 백업 위치에 보존합니다.
+`--force`는 지정한 `data/raw/trade` 또는 `data/raw/rent` 파일을 새 API 응답으로 교체합니다.
+`.gitignore`는 신규 원본을 제외하지만 **이미 추적된 원본·메타데이터는 계속 Git 변경에 나타납니다**.
+중요한 갱신 전에는 `data/raw`, `data/metadata/collection_status.json`과 직전 정상 서비스 산출물을 별도 백업 위치에 보존하고,
+`git ls-files data/raw data/metadata`로 실제 추적 상태를 확인합니다.
+빌드는 여러 파일을 순서대로 기록하므로, 실패 시 일부 로컬 산출물만 새 자료일 수 있습니다. 검증 완료 전 배포하지 않습니다.
 
 `demo` 명령은 운영 데이터 갱신에 사용하지 않습니다.
 
@@ -99,59 +117,62 @@ KAKAO_API_KEY=카카오_REST_API_키
 
 ## 4. 매매·전월세 정기 갱신
 
-광역생활권을 함께 갱신할 때는 실행 전에 범위를 확인한 뒤 master를 별도로 빌드합니다.
+### 4.0 전체 지역 범위와 단지 원본 확인
+
+먼저 거래유형별 대상이 18개 지역 × 4개월 = 72개 월·지역인지 확인합니다. `dry-run` 출력의
+`api_calls`는 월·지역 대상 수이며, 실제 요청 수는 페이지네이션·재시도에 따라 늘어날 수 있습니다.
 
 ```powershell
-.venv\Scripts\python.exe main.py collect-trade --region satellite --start 202607 --end 202609 --dry-run
-.venv\Scripts\python.exe main.py collect-trade --region satellite --start 202607 --end 202609 --force
-.venv\Scripts\python.exe main.py collect-rent --region satellite --start 202607 --end 202609 --force
-.venv\Scripts\python.exe main.py collect-kapt --region satellite
-.venv\Scripts\python.exe main.py build-metropolitan
-.venv\Scripts\python.exe scripts\build_satellite_unmatched_review.py
+.venv\Scripts\python.exe main.py collect-trade --region all --start 202607 --end 202610 --force --dry-run
+.venv\Scripts\python.exe main.py collect-rent --region all --start 202607 --end 202610 --force --dry-run
+```
+
+`data/raw/kapt/`의 `busan_complexes.parquet`, `yangsan_complexes.parquet`, `gimhae_complexes.parquet`을 확인합니다.
+최초 구축 또는 지역 원본이 없는 경우 아래 명령으로 단지 원본을 먼저 확보합니다.
+유효한 기존 원본은 재사용하며, 단지 정보 자체를 갱신할 때만 `--force`를 추가합니다.
+
+```powershell
+.venv\Scripts\python.exe main.py collect-kapt --region all
+# 지도 좌표가 누락된 경우에만 실행(KAKAO_API_KEY 필요)
+.venv\Scripts\python.exe main.py geocode-kapt --region all --retry-failed
 ```
 
 K-apt API가 성공 코드와 빈 목록·빈 상세 본문을 반환하면 수집기는 재시도하며, 기존 유효
-지역 파일은 보존합니다. `metropolitan_scope_report.csv`에서 양산·김해 단지 수와 좌표 보유율,
-`metropolitan_quality_report.csv`에서 중복·주소·거래일·지역코드 오류를 확인합니다. 부산 전용
-`build`와 시가총액·학교 모델 산출물은 이 명령으로 변경되지 않습니다.
-광역 전월세 결과는 `metropolitan_rent_matched.parquet`과
-`metropolitan_apartment_rent_monthly.parquet`에 저장되며, 대시보드는 이 파일을 우선 사용합니다.
-
-양산·김해는 법정동과 지번 전체가 일치하는 경우에만 같은 단지로 매칭합니다. 검토 CSV가
-Excel 등에서 열려 있으면 갱신본은 `satellite_unmatched_priority_updated.csv`로 저장되므로,
-기존 파일을 닫은 뒤 명령을 다시 실행하면 원래 파일명으로 교체됩니다.
-빌드 후 `metropolitan_apartment_monthly.parquet`와 `metropolitan_complex_summary.csv`에서
-`TRADE_` 식별자 수가 검토표의 미매칭 표기 수와 같은지, 거래건수 합계가 누락되지 않았는지 확인합니다.
-
-아래 예시는 2026년 7월부터 9월까지 다시 수집하는 경우입니다. 실제 작업 월에 맞게 `--start`와 `--end`를 변경합니다.
+지역 파일은 보존합니다. 단지 원본이나 좌표가 변경되었다면 이후 일반·광역 빌드를 모두 실행합니다.
 
 ### 4.1 매매 원본 수집
 
 ```powershell
-.venv\Scripts\python.exe main.py collect-trade --start 202607 --end 202609 --force
+.venv\Scripts\python.exe main.py collect-trade --region all --start 202607 --end 202610 --force
 ```
 
 ### 4.2 전월세 원본 수집
 
 ```powershell
-.venv\Scripts\python.exe main.py collect-rent --start 202607 --end 202609 --force
+.venv\Scripts\python.exe main.py collect-rent --region all --start 202607 --end 202610 --force
 ```
 
-두 명령은 부산 16개 구·군을 순회합니다. 결과 JSON에서 다음을 확인합니다.
+두 명령은 각각 전체 18개 지역 × 4개월을 순회합니다. 결과 JSON과 수집 메타데이터에서 다음을 확인합니다.
 
-- 실패 건수가 0인지
-- 요청한 월과 16개 구·군이 모두 처리되었는지
+- `failed`가 0인지 (`--force` 실행에서는 `downloaded`가 거래유형별 72인지)
+- 요청한 4개월과 18개 지역이 모두 처리되었는지
 - `data/metadata/collection_status.json`에 성공 상태와 수집 시각이 기록되었는지
 - `data/raw/trade/YYYYMM/`와 `data/raw/rent/YYYYMM/`에 구·군별 Parquet가 있는지
 
-일부 구·군만 실패했다면 성공한 전체 범위를 다시 받을 필요 없이 해당 코드만 재실행합니다.
+개별 실패가 있어도 수집기는 나머지 대상을 계속 처리하므로 프로세스 정상 종료만으로 전체 성공을 판단하지 않습니다.
+7~10월 **모든 월**의 지역별 `status`와 `successful_at`이 이번 작업에 해당하는지 확인합니다.
+`--force` 없이 재실행하면 기존 파일은 건너뛰므로, 과거 원본이 남은 실패 지역도 반드시 `--force`로 재수집합니다.
+일부 지역만 실패했다면 성공한 전체 범위를 다시 받을 필요 없이 해당 코드만 재실행합니다.
 
 ```powershell
-.venv\Scripts\python.exe main.py collect-trade --start 202609 --end 202609 --lawd-cd 26350 --force
-.venv\Scripts\python.exe main.py collect-rent --start 202609 --end 202609 --lawd-cd 26350 --force
+.venv\Scripts\python.exe main.py collect-trade --region all --start 202610 --end 202610 --lawd-cd 26350 --force
+.venv\Scripts\python.exe main.py collect-rent --region all --start 202610 --end 202610 --lawd-cd 48250 48330 --force
 ```
 
-빈 응답은 실제 거래가 없는 경우일 수 있지만, 인증·서비스 오류와 구분하여 로그를 확인해야 합니다.
+김해시 코드는 `48250`, 양산시 코드는 `48330`입니다. `--lawd-cd`는 선택한 `--region`에 속한 코드만 허용합니다.
+빈 응답(`empty`)은 실제 거래가 없는 경우일 수 있지만, 인증·서비스 오류와 구분하여 로그를 확인해야 합니다.
+빈 정상 응답은 0행 원본과 성공 상태로 기록될 수 있으므로 최신 월 패널에 거래가 없다고 수집 실패로 판단하지 않습니다.
+수집 검수가 끝난 뒤 빌드합니다.
 
 ### 4.3 정제·매칭·분석 산출물 생성
 
@@ -173,9 +194,27 @@ K-apt 구조나 오래된 이력을 의도적으로 변경했다면 처음부터
 .venv\Scripts\python.exe main.py build
 ```
 
-빌드가 성공하면 매매·전월세 패널, 단지 매칭 결과, 요약표와 `data/processed/data_update_status.json`이 갱신됩니다. 이 상태 파일은 모든 최종 패널이 만들어진 후 마지막에 교체됩니다.
+일반 빌드가 성공하면 매매·전월세 패널, 단지 매칭 결과, 요약표와 `data/processed/data_update_status.json`이 갱신됩니다.
+이 상태 파일은 일반 빌드 마지막에 교체되며, 이후 광역 빌드의 성공까지 보장하는 상태표가 아닙니다.
 
-### 4.4 일반 분석 산출물 확인
+이어서 광역생활권 매매·전월세 master를 재생성합니다. 증분 옵션 없이 전체 원본을 처리합니다.
+
+```powershell
+.venv\Scripts\python.exe main.py build-metropolitan
+.venv\Scripts\python.exe scripts\build_satellite_unmatched_review.py
+```
+
+광역 빌드는 `transactions_master.parquet`, `metropolitan_apartment_monthly.parquet`,
+`metropolitan_complex_summary.csv`, `metropolitan_rent_matched.parquet`,
+`metropolitan_apartment_rent_monthly.parquet`을 갱신합니다. 앱은 이 파일들이 존재하면 일반 파일보다 우선 사용합니다.
+광역 빌드만으로 일반 `build`의 갱신 현황, 부산 전용 모델 입력·Watch 산출물을 갱신할 수 없으므로 두 빌드 모두 실행합니다.
+
+양산·김해는 법정동과 지번 전체가 일치하는 경우에만 같은 단지로 매칭합니다.
+K-apt에 대응 단지가 없는 매매 단지는 `TRADE_` 식별자로 보존합니다.
+검토 CSV가 Excel 등에서 열려 있으면 갱신본은 `satellite_unmatched_priority_updated.csv`로 저장되므로,
+기존 파일을 닫은 뒤 검토표 명령을 다시 실행하면 원래 파일명으로 교체됩니다.
+
+### 4.4 일반·광역 분석 산출물 확인
 
 다음 파일의 수정 시각과 크기가 갱신되었는지 확인합니다.
 
@@ -185,6 +224,12 @@ Get-Item data\processed\busan_apartment_rent_monthly.parquet
 Get-Item data\interim\trade_matched.parquet
 Get-Item data\interim\rent_matched.parquet
 Get-Content data\processed\data_update_status.json -Encoding UTF8
+Get-Item data\processed\metropolitan_apartment_monthly.parquet
+Get-Item data\processed\metropolitan_apartment_rent_monthly.parquet
+Get-Item data\processed\metropolitan_complex_summary.csv
+Get-Item data\interim\transactions_master.parquet
+Get-Item data\interim\metropolitan_rent_matched.parquet
+Get-Content reports\tables\metropolitan_build_summary.json -Encoding UTF8
 ```
 
 `data_update_status.json`에서 다음 항목을 확인합니다.
@@ -195,20 +240,96 @@ Get-Content data\processed\data_update_status.json -Encoding UTF8
 - `dashboard_applied_at`이 이번 작업 시각인지
 - `data_version`이 이전 값에서 변경되었는지
 
+**현재 갱신 현황 요약은 부산 16개 지역의 수집 상태와 일반 `busan_*` 패널을 기준으로 계산합니다.**
+`complete` 또는 `successful_regions=16`은 김해·양산까지 수집·광역 빌드가 완료되었다는 뜻이 아닙니다.
+광역 빌드는 이 JSON을 갱신하지 않습니다. 전체 18개 지역의 4개월 성공 여부는 수집 메타데이터에서 별도로 확인하고,
+광역 거래·패널의 기간과 건수는 광역 산출물로 검수합니다. 상단 현황 건수를 전체 지역 필터 화면과 직접 대조하지 않습니다.
+
+다음 명령은 원본이나 산출물을 변경하지 않고 월별 전체 지역 수집 상태를 확인합니다.
+작업 기간을 바꾸면 `months`도 함께 변경합니다. 각 줄의 `success`는 18이어야 하며,
+실패·미기록 건이 있다면 4.1~4.2절에서 해당 월·지역을 다시 수집합니다.
+
+```powershell
+@'
+import json
+from collections import Counter
+from pathlib import Path
+from src.regions import regions_frame
+records = json.loads(Path("data/metadata/collection_status.json").read_text(encoding="utf-8"))["records"]
+codes = regions_frame("all")["lawd_cd"].tolist()
+months = ["202607", "202608", "202609", "202610"]
+for kind in ["trade", "rent"]:
+    for month in months:
+        statuses = Counter(records.get(f"{kind}:{month}:{code}", {}).get("status", "missing") for code in codes)
+        print(kind, month, dict(statuses))
+'@ | .venv\Scripts\python.exe -
+```
+
+아래 명령은 일반·광역 패널과 광역 거래 파일의 최신 월·수정 시각을 확인합니다.
+거래가 존재하는데 광역 결과에 대상 월이 없다면 광역 빌드 누락 여부를 확인합니다.
+10월 정상 빈 응답은 최신 거래 월이 9월일 수 있으므로 수집 상태와 원본 건수를 함께 판단합니다.
+
+```powershell
+@'
+from pathlib import Path
+from datetime import datetime
+from zoneinfo import ZoneInfo
+import pyarrow.parquet as pq
+paths = [
+    "data/processed/busan_apartment_monthly.parquet",
+    "data/processed/busan_apartment_rent_monthly.parquet",
+    "data/processed/metropolitan_apartment_monthly.parquet",
+    "data/processed/metropolitan_apartment_rent_monthly.parquet",
+    "data/interim/transactions_master.parquet",
+    "data/interim/metropolitan_rent_matched.parquet",
+]
+for name in paths:
+    path = Path(name)
+    table = pq.read_table(path, columns=["year_month"])
+    months = [str(m) for m in table.column("year_month").to_pylist() if m is not None]
+    modified = datetime.fromtimestamp(path.stat().st_mtime, ZoneInfo("Asia/Seoul"))
+    print(name, "rows=", table.num_rows, "latest=", max(months, default="empty"), "modified=", modified.isoformat(timespec="seconds"))
+'@ | .venv\Scripts\python.exe -
+```
+
 다음 검수 파일도 확인합니다.
 
 - `reports/data_quality_report.csv`
 - `data/processed/apartment_match_manual_review.csv`
 - `data/processed/apartment_rent_match_manual_review.csv`
 - `data/processed/apartment_rent_cross_market_issues.csv`
+- `reports/tables/metropolitan_scope_report.csv`의 부산·양산·김해 거래·단지 수와 매칭률
+- `reports/tables/metropolitan_quality_report.csv`의 중복·주소·거래일·지역코드 오류
+- `reports/tables/metropolitan_match_failures.csv`, `satellite_unmatched_priority.csv`
+- `data/processed/metropolitan_apartment_rent_cross_market_issues.csv`
+
+취소 거래를 제외한 광역 거래 건수와 광역 매매 패널 `transaction_count` 합계를 대조합니다.
+미매칭 검토표는 양산·김해만 대상으로 하므로, `TRADE_` ID 수도 같은 지역으로 제한하고 고유 단지 기준으로 비교합니다.
+월·면적별 패널 행 수를 단지 수로 사용하지 않습니다.
 
 매매·전월세 단지 ID 교차검증 오류가 있으면 빌드는 실패합니다. 이때 오류 파일을 검토하기 전에는 기존 운영 산출물을 교체하지 않습니다.
+
+### 4.5 2026-10-07 로컬 점검 기록
+
+아래는 매뉴얼 수정 시 확인한 상태이며, 이후 빌드가 완료되면 4.4절의 명령으로 다시 확인합니다.
+
+| 점검 대상 | 확인 결과 |
+|---|---|
+| 202607~202610 수집 메타데이터 | 매매·전월세 모두 월별 18개 지역 성공(총 144개 월·지역·거래유형 상태) |
+| 일반 매매·전월세 패널 | 최신 월 2026-10, 2026-10-07 생성 |
+| 광역 매매·전월세 패널 및 거래 파일 | 최신 월 2026-09, 2026-09-23 생성 |
+| 일반 갱신 현황 | 2026-10-07 15:15:19 KST 반영, 매매·전월세 모두 부산 16/16 `complete` |
+
+점검 당시 전체 지역 원본 수집과 일반 빌드는 반영되었지만 광역 산출물은 이전 상태였습니다.
+**다음 작업은 `main.py build-metropolitan` 실행 후 광역 결과 검수·앱 재시작입니다.**
+이 문서 수정 작업에서는 수집·빌드·시가총액 배치·배포를 실행하지 않았습니다.
 
 ---
 
 ## 5. 실거래 기반 시가총액 갱신
 
-매매 수집과 `build`가 성공한 다음 실행합니다.
+매매 수집과 `build`가 성공한 다음 실행합니다. KB 마스터도 바뀌었다면 먼저 6절의 KB 배치·동기화를 완료합니다.
+실거래 시가총액은 부산 모델 범위이며, 김해·양산 수집이 해당 도시의 시가총액 산정 지원을 의미하지 않습니다.
 
 ### 5.1 최근 종료 월 갱신
 
@@ -219,6 +340,13 @@ Get-Content data\processed\data_update_status.json -Encoding UTF8
 ```
 
 기존 월에 새 실행 결과를 추가할 때 `--reason`은 필수입니다. 동일 입력·규칙·마스터로 다시 실행하면 새 revision을 만들지 않습니다.
+배치 실행 중에는 매매 원본 읽기, 입력 해시 계산, 월별 단지 산정, snapshot 저장, 민감도 분석,
+순위·감사 보고서 저장의 진행률이 표시됩니다. 처리 건수·백분율·단계/전체 경과시간과 예상 잔여시간을 확인할 수 있습니다.
+진행 메시지는 표준 오류로, 최종 결과 JSON은 표준 출력으로 분리됩니다. 자동화에서 최종 JSON만 필요하면 `--quiet`를 사용합니다.
+
+```text
+[2026-08 시가총액 산정] 250/511 ( 48.9%) | 단계 경과 00:01:42 | 남은 시간 약 00:01:47 | 전체 경과 00:03:10
+```
 
 ### 5.2 특정 과거 월 정정
 
@@ -226,6 +354,8 @@ Get-Content data\processed\data_update_status.json -Encoding UTF8
 
 ```powershell
 .venv\Scripts\python.exe -m src.market_cap_batch --month 2026-07 --reason "지연 신고·취소 반영"
+.venv\Scripts\python.exe -m src.market_cap_batch --month 2026-08 --reason "2026년 7~10월 재수집 반영"
+.venv\Scripts\python.exe -m src.market_cap_batch --month 2026-09 --reason "2026년 7~10월 재수집 반영"
 ```
 
 가격 산정은 최근 3·6·12개월 거래 창을 사용합니다. 과거 원본 변경이 이후 평가월의 가격 창에도 포함된다면, 변경 월부터 현재 최근 종료 월까지 영향을 받는 월을 각각 재산정합니다.
@@ -279,10 +409,33 @@ Get-Content data\processed\data_update_status.json -Encoding UTF8
 
 ### 6.2 배포본 선택
 
-`--release`를 생략하면 디렉터리 이름순으로 가장 최신인 `area_master_*`가 선택됩니다. 운영 갱신에서는 잘못된 배포본 선택을 막기 위해 경로를 명시하는 것을 권장합니다.
+기본 배치는 디렉터리 이름순으로 가장 최신인 `area_master_*`를 선택합니다.
+`run_market_cap_kb_batch.py` 래퍼는 `--release` 인자를 처리하지 않으며, 동기화 명령도 배포본을 선택하지 않습니다.
+기본 선택을 사용할 때는 아래 명령을 실행하고 결과의 `release`를 확인합니다.
 
 ```powershell
 .venv\Scripts\python.exe ..\area_master\scripts\run_market_cap_kb_batch.py
+.venv\Scripts\python.exe -m src.sync_area_master_market_cap
+```
+
+특정 배포본을 고정하려면 아래처럼 실제 `run` 함수의 `release` 인자를 지정합니다.
+`area_master_20260918`은 예시이므로 의도한 배포본으로 바꿉니다. 출력과 producer를 생성 측 기준으로 설정해야
+서비스 동기화 검증을 통과합니다.
+
+```powershell
+@'
+from pathlib import Path
+from src.market_cap_kb import run
+source = Path("../area_master").resolve()
+run(
+    source=source,
+    release=source / "data/releases/area_master_20260918",
+    output=source / "data/processed/market_cap/kb",
+    adjustments=source / "config/market_cap_kb_adjustments.json",
+    transaction_master_output=source / "data/processed/market_cap/market_cap_area_master.csv",
+    producer="area_master",
+)
+'@ | .venv\Scripts\python.exe -
 .venv\Scripts\python.exe -m src.sync_area_master_market_cap
 ```
 
@@ -356,6 +509,10 @@ Get-Item config\market_cap_area_master.csv
 - `source_files`의 경로와 SHA-256 해시
 - `artifact_files`의 `complexes.parquet`, `areas.parquet` 콘텐츠 SHA-256
 - `adjustment_policy.version`이 이번에 수정한 보정 정책 버전인지
+- `producer`가 `area_master`인지, `run_id`가 생성 측과 서비스 측에서 일치하는지
+
+KB 배치는 이미 수집된 `kb_area_types.csv`를 읽습니다. 배치 실행 자체가 최신 KB 가격 수집을 수행하지 않으므로
+가격을 갱신하는 작업에서는 먼저 생성 측 수집을 완료하고 `collection_start`, `collection_end`를 확인합니다.
 
 보정 대상 단지는 `data/processed/market_cap/kb/<run_id>/complexes.parquet`에서 다음 항목도 대조합니다.
 
@@ -392,6 +549,7 @@ KB 가격이나 보정 정책만 바뀌어도 `area_master` 배치와 서비스 
 
 ```powershell
 .venv\Scripts\python.exe -m pytest -q tests\test_market_cap.py tests\test_market_cap_kb.py tests\test_overview_map.py tests\test_overview_ui.py
+.venv\Scripts\python.exe -m pytest -q tests\test_regions.py tests\test_collect_rent.py tests\test_rent_analysis.py tests\test_data_update_status.py tests\test_deployment_data.py tests\test_market_cap_sync.py
 ```
 
 ### 7.2 로컬 웹서비스 실행
@@ -413,8 +571,10 @@ KB 가격이나 보정 정책만 바뀌어도 `area_master` 배치와 서비스 
 - 구·군/법정동/단지 필터와 최신 월 거래량
 - 아파트 상세의 매매가격, 전세가격, 전세가율
 - 최근 매매 및 전월세 계약 목록
+- `지역`을 `부산 + 양산 + 김해`, `양산`, `김해`로 각각 선택하여 2026년 7~10월 매매·전세 조회 확인
+- 김해·양산의 `실거래 전용 단지 포함`을 켠 상태에서 K-apt 미매칭 단지·법정동·상세 거래 확인
 - 아파트 시가총액의 KB 기준일·배포본·완전 산정 건수
-- `보정 추정 포함` 모드에서 해운대두산위브더제니스 34,731.75억원, 남천자이 13,863.30억원 표시
+- `보정 추정 포함` 금액을 이번 KB snapshot과 대조(6.3절의 2026-09-21 snapshot에서는 제니스 34,731.75억원, 남천자이 13,863.30억원)
 - 두산위브더제니스의 가격 산정 방법이 `실거래 기반 보정 추정`으로 표시되고 실제 KB 시세로 표기되지 않는지
 - `KB 시세만`과 `보정 추정 포함` 전환 시 대상 단지의 포함 여부와 설명이 올바른지
 - 가격 기준을 `실거래 월별 추정`으로 바꿨을 때 최근 종료 월
@@ -444,6 +604,18 @@ git diff --stat
 - `data/interim/trade_matched.parquet`
 - `data/interim/rent_matched.parquet`
 
+광역 파일이 존재하는 현재 서비스는 다음 **5개 파일도 같은 빌드의 결과로 함께 배포**해야 합니다.
+일반 파일만 배포하면 앱이 남아 있는 이전 광역 파일을 우선 사용합니다.
+
+- `data/processed/metropolitan_apartment_monthly.parquet`
+- `data/processed/metropolitan_apartment_rent_monthly.parquet`
+- `data/processed/metropolitan_complex_summary.csv`
+- `data/interim/transactions_master.parquet`
+- `data/interim/metropolitan_rent_matched.parquet`
+
+`apartment_master.parquet`, `transactions_clean_master.parquet`, 매칭·품질 검토표는 빌드·검수용으로 보존합니다.
+현재 앱은 위 배포용 파일을 직접 읽으며, 검수용 파일이 배포 파일을 대신하지 않습니다.
+
 시가총액 갱신 시에는 다음도 포함합니다.
 
 - `config/market_cap_area_master.csv`
@@ -454,7 +626,9 @@ git diff --stat
 - `data/processed/market_cap/kb/latest.json`
 - `data/processed/market_cap/kb/summary.csv`
 
-원본 `data/raw`와 수집 메타데이터는 로컬 배치용이며 기본 Git 배포 대상이 아닙니다. `.env`도 절대 배포 커밋에 포함하지 않습니다.
+원본 `data/raw`와 수집 메타데이터는 로컬 배치용이며 서비스 실행에 필요하지 않습니다.
+이미 Git 추적된 파일은 `.gitignore`만으로 제외되지 않으므로 `git add .` 대신 검증된 서비스 산출물을 선택적으로 추가합니다.
+이번 작업에서 기존 추적 원본을 임의로 삭제·추적 해제하지 않습니다. `.env`도 배포 커밋에 포함하지 않습니다.
 
 보정 정책 원본과 생성 측 snapshot은 `area_master` 저장소의 `config/market_cap_kb_adjustments.json`, `data/processed/market_cap/`에서 별도로 관리합니다. 웹서비스 배포에는 동기화된 사본만 포함합니다.
 
@@ -472,6 +646,8 @@ git diff --cached --name-only
 - 의도하지 않은 원본·임시 파일이 없는지
 - `latest.json`이 가리키는 KB snapshot 디렉터리가 함께 포함되었는지
 - `manifest.json`이 참조하는 실거래 시가총액 snapshot이 함께 포함되었는지
+- 일반·광역 매매 패널, 전월세 패널, 거래 파일, 단지 요약이 모두 이번 갱신 결과인지
+- Parquet 필수 컬럼 검증과 로컬 화면 확인을 통과했는지
 - `.env`, API 키, 개인 경로가 포함되지 않았는지
 - 대용량 파일 제한을 초과하지 않는지
 
@@ -485,15 +661,16 @@ Git 연동 Streamlit 배포라면 push 후 새 배포가 정상 완료됐는지 
 
 1. 웹서비스가 오류 없이 열리는지 확인합니다.
 2. 데이터 갱신 현황의 `최신 월`과 `반영 시각`을 확인합니다.
-3. 최신 월의 매매·전세·월세 건수를 로컬 `data_update_status.json`과 대조합니다.
+3. 상단 일반 갱신 현황은 로컬 `data_update_status.json`과 대조합니다(부산 16개 지역 수집 기준).
 4. 대표 단지 2~3개의 최근 거래와 가격 추이를 확인합니다.
 5. KB 시가총액 화면의 배포본과 산정 완료 건수를 `kb/latest.json`과 대조합니다.
 6. 실거래 시가총액의 최신 종료 월과 등급별 건수를 `market_cap/audit.json`과 대조합니다.
+7. 전체 지역·양산·김해 필터별 7~10월 거래 건수와 대표 단지 목록을 로컬 광역 결과와 대조합니다.
 
 ### 9.2 실패 시 원칙
 
-- 수집 일부 실패: 실패 구·군/월만 다시 수집한 뒤 `build`부터 재실행합니다.
-- `build` 실패: 오류 원인을 수정하기 전에는 새 중간 산출물을 배포하지 않습니다.
+- 수집 일부 실패: 선택 지역에 맞는 `--region`·`--lawd-cd`·`--force`로 실패 지역/월을 다시 수집한 뒤 일반·광역 빌드를 재실행합니다.
+- 일반·광역 빌드 실패: 로컬 산출물 일부가 이미 바뀌었을 수 있습니다. 원인을 해결하고 두 빌드·검수를 완료하기 전 배포하지 않습니다.
 - KB 검증 실패: `area_master`의 마스터·상태·혼합단지 파일 조합을 확인합니다.
 - 운영 화면이 이전 데이터 표시: 배포 파일과 프로세스 재시작 여부를 확인합니다.
 - 운영 오류: 직전 정상 Git 커밋 또는 직전 정상 배포 산출물로 되돌리고 서비스를 재시작합니다.
@@ -504,12 +681,16 @@ Git 연동 Streamlit 배포라면 push 후 새 배포가 정상 완료됐는지 
 
 ## 10. 월간 운영 체크리스트
 
-- [ ] 현재 월과 직전 2개월의 매매 수집 완료
-- [ ] 현재 월과 직전 2개월의 전월세 수집 완료
-- [ ] 16개 구·군 수집 상태 확인
+- [ ] 대상 기간 확인(이번 작업은 202607~202610)
+- [ ] `--region all`로 18개 지역 매매 수집 완료
+- [ ] `--region all`로 18개 지역 전월세 수집 완료
+- [ ] 모든 대상 월·지역의 성공 상태·이번 수집 시각·원본 존재 확인
 - [ ] `build --incremental` 성공
-- [ ] `data_update_status.json` 최신 월·완료 상태 확인
+- [ ] `build-metropolitan` 성공 및 김해·양산 미매칭 검토표 갱신
+- [ ] 일반 갱신 현황의 최신 월·완료 상태 확인(전체 지역 완료 판정과 구분)
+- [ ] 광역 매매·전월세 거래 및 패널의 기간·건수·생성 시각 확인
 - [ ] 매매 갱신 시 최근 종료 월 시가총액 배치 성공
+- [ ] 7~8월 정정에 영향받는 종료 월의 시가총액도 재산정
 - [ ] `area_master` 변경 시 KB 시가총액 배치 성공
 - [ ] 보정 정책 변경 시 평형 ID·세대수·출처·방식 검증 및 `adjustment_policy.version` 갱신
 - [ ] 평형 마스터 변경 시 실거래 시가총액 재산정 여부 결정

@@ -229,17 +229,85 @@ busan_apartment_analysis/
 
 ## 데이터 갱신 작업
 
-실거래 신고 지연·정정·취소 때문에 최신 월뿐 아니라 직전 1~2개월도 다시 수집하는 것이 안전합니다.
+### 2026년 7월~10월 현재까지 전체 지역 갱신
 
-아래는 매매·전월세 원본 수집과 일반 분석 패널 갱신의 최소 명령입니다.
+대상은 **부산 16개 구·군(기장군 포함) + 양산시 + 김해시, 총 18개 지역**의 매매·전세 실거래입니다.
+`--region all`을 반드시 지정합니다. 생략하면 기본값인 부산만 수집합니다.
+전세는 `collect-rent`로 **전세·월세를 함께 수집**한 뒤 분석 패널에서 구분합니다.
+
+아래 기간은 2026년 7월부터 10월까지 양 끝 월을 포함합니다. 2026-10-07 기준 10월은 진행 중인 월이며,
+실행 시점에 API에 공개된 신고 자료까지만 반영됩니다. 실거래 신고 지연·정정·취소가 있으므로
+`--force`로 기존 월·지역 원본도 다시 받고, 이후 같은 기간을 재수집해 보완합니다.
+
+1. 프로젝트 폴더에서 가상환경을 활성화하고 `.env`의 매매·전월세 API 권한을 확인합니다.
+   기존 부산·양산·김해 K-apt 원본을 재사용합니다. 최초 구축이거나 지역 원본이 없다면 먼저
+   `python main.py collect-kapt --region all`을 실행합니다.
+
+2. 수집 범위를 확인합니다. 아래 명령은 실제 수집 없이 거래유형별 18개 지역 × 4개월 = 72개
+   월·지역 대상을 확인합니다. 실제 API 요청 수는 페이지네이션·재시도에 따라 늘어날 수 있습니다.
 
 ```powershell
-python main.py collect-trade --start 202607 --end 202609 --force
-python main.py collect-rent --start 202607 --end 202609 --force
-python main.py build --incremental
+python main.py collect-trade --region all --start 202607 --end 202610 --force --dry-run
+python main.py collect-rent --region all --start 202607 --end 202610 --force --dry-run
 ```
 
-매매 갱신 후에는 실거래 기반 시가총액 배치를 별도로 실행해야 합니다. `area_master` 및 KB 가격 갱신, 검증, 배포 파일, 캐시 초기화, 롤백을 포함한 전체 운영 절차는 [웹서비스 데이터 갱신 운영 매뉴얼](reports/DATA_REFRESH_RUNBOOK.md)을 따르세요.
+3. 매매와 전월세 원본을 순서대로 다시 수집합니다.
+
+```powershell
+python main.py collect-trade --region all --start 202607 --end 202610 --force
+python main.py collect-rent --region all --start 202607 --end 202610 --force
+```
+
+각 명령이 끝나면 출력의 `failed`가 0인지 확인하고, `empty`는 해당 월·지역의 거래 없음 여부를 확인합니다.
+일부 지역 호출이 실패해도 수집 명령은 끝까지 진행할 수 있으므로 종료 여부만으로 전체 성공을 판단하지 않습니다.
+`data/metadata/collection_status.json`에서 **202607~202610 전체 월의 매매·전월세 지역별 성공 상태**를 확인합니다.
+실패한 월·지역은 원인을 해결한 뒤 `--lawd-cd`와 `--force`로 다시 받습니다. 예를 들어 김해시 10월 전월세 재수집은
+`python main.py collect-rent --region all --start 202610 --end 202610 --lawd-cd 48250 --force`입니다
+(양산시 코드는 `48330`). 수집이 모두 성공한 다음 빌드로 진행합니다.
+
+4. 일반 분석 산출물을 갱신한 뒤 광역생활권 매매·전월세 산출물도 갱신합니다.
+
+```powershell
+python main.py build --incremental
+python main.py build-metropolitan
+```
+
+`build --incremental`은 최근 자료를 정제·매칭하고 일반 월 패널·요약·품질 보고서·갱신 현황을 생성합니다.
+7~8월처럼 잠정 구간보다 오래된 원본이 변경되었다면 자동으로 전체 빌드로 전환할 수 있습니다.
+`build-metropolitan`은 전체 지역 원본으로 광역생활권 master와 매매·전월세 패널을 다시 생성합니다.
+**김해·양산과 전체 지역 화면을 갱신하려면 두 번째 빌드도 필요합니다.** 두 명령의 성공을 모두 확인합니다.
+
+5. 생성 파일과 화면 반영을 확인합니다.
+
+| 확인 대상 | 파일 또는 확인 방법 |
+| --- | --- |
+| 월·지역별 수집 상태 | `data/metadata/collection_status.json` |
+| 일반 매매·전월세 패널 | `data/processed/busan_apartment_monthly.parquet`, `data/processed/busan_apartment_rent_monthly.parquet` |
+| 광역 매매 거래·월 패널 | `data/interim/transactions_master.parquet`, `data/processed/metropolitan_apartment_monthly.parquet` |
+| 광역 전월세 거래·월 패널 | `data/interim/metropolitan_rent_matched.parquet`, `data/processed/metropolitan_apartment_rent_monthly.parquet` |
+| 지역별 거래·매칭 현황 | `reports/tables/metropolitan_scope_report.csv`, `reports/tables/metropolitan_build_summary.json` |
+| 데이터 품질 | `reports/data_quality_report.csv`, `reports/tables/metropolitan_quality_report.csv`의 `REVIEW` 항목 검토 |
+
+실행 중인 Streamlit 앱은 중지 후 다시 시작해 메모리 캐시를 갱신합니다.
+
+```powershell
+python -m streamlit run app.py
+```
+
+화면에서 `지역`을 `부산 + 양산 + 김해`, `양산`, `김해`로 각각 선택하고 2026년 7~10월 매매·전세
+조회 결과를 확인합니다. 10월은 아직 신고 거래가 없을 수 있으므로 패널의 최신 월만으로 수집 누락을 판단하지 말고
+월·지역별 수집 상태와 함께 확인합니다.
+
+매매 갱신 후 실거래 기반 시가총액 메뉴도 갱신하려면 위 빌드가 성공한 뒤 별도 배치를 실행합니다.
+이 배치는 부산 시가총액 모델 범위에 적용되며, 기본 KB 시세 시가총액의 가격 갱신은 별도 작업입니다.
+
+```powershell
+python -m src.market_cap_batch --reason "2026년 7~10월 전체 지역 실거래 갱신"
+```
+
+`area_master` 및 KB 가격 갱신, 검증, 운영 웹서비스 배포 파일, 캐시 초기화, 롤백을 포함한 전체 운영 절차는
+[웹서비스 데이터 갱신 운영 매뉴얼](reports/DATA_REFRESH_RUNBOOK.md)을 따르세요.
+로컬 빌드 후 운영 웹서비스에도 반영하려면 해당 매뉴얼에 따라 산출물을 배포하고 서비스를 재시작합니다.
 
 ## 아파트 시가총액 메뉴
 

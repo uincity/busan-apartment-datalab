@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import Protocol
+from typing import Callable, Protocol
 
 import numpy as np
 import pandas as pd
@@ -133,8 +133,15 @@ class TransactionMedian:
         }
 
 
-def estimate_month(complexes: pd.DataFrame, master: pd.DataFrame, trades: pd.DataFrame,
-                   month: str, rules: dict, data_start: pd.Timestamp) -> tuple[pd.DataFrame, pd.DataFrame]:
+def estimate_month(
+    complexes: pd.DataFrame,
+    master: pd.DataFrame,
+    trades: pd.DataFrame,
+    month: str,
+    rules: dict,
+    data_start: pd.Timestamp,
+    progress: Callable[[int, int], None] | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     active = active_master(master, month)
     problems = validate_master(active, complexes)
     bad_codes = set(problems.kapt_code)
@@ -151,7 +158,10 @@ def estimate_month(complexes: pd.DataFrame, master: pd.DataFrame, trades: pd.Dat
         except Exception:
             pass
     minimum_extrapolation_coverage = float(rules.get("minimum_extrapolation_coverage", 1.0))
-    for _, c in complexes.iterrows():
+    total_complexes = len(complexes)
+    if progress:
+        progress(0, total_complexes)
+    for complex_index, (_, c) in enumerate(complexes.iterrows(), start=1):
         rows = groups.get(c.kapt_code, active.iloc[0:0])
         reasons = []
         approval = pd.to_datetime(c.approval_date, errors="coerce")
@@ -241,6 +251,8 @@ def estimate_month(complexes: pd.DataFrame, master: pd.DataFrame, trades: pd.Dat
             "historical_limit": "현재 확보 자료로 재구성한 과거 추정치; 과거 세대 구성 미확인" if rows.empty or rows.valid_from.eq("").any() else "현재 확보 자료로 재구성한 과거 추정치",
             "initial_history_short": data_start > (pd.Period(month, "M") - 11).start_time,
         })
+        if progress:
+            progress(complex_index, total_complexes)
     return pd.DataFrame(totals), pd.DataFrame(detail)
 
 

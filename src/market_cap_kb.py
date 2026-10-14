@@ -62,8 +62,10 @@ def adjusted_valuation(totals: pd.DataFrame, detail: pd.DataFrame, policy: dict)
         # Scope override is a user-confirmed whole-residential assumption, never a verified sale split.
         blockers = [r for r in totals.at[i, "reason"].split("; ")
                     if r and r not in ("임대·혼합 분양 범위 확인 필요", "KB 시세 또는 타입 연결 부족")]
+        hh_match = (totals.at[i, "eligible_households"] == rule["households"]
+                    or totals.at[i, "households"] == rule["households"])
         if (blockers or rows.empty or rows.households.sum() != rule["households"]
-                or totals.at[i, "households"] != rule["households"]
+                or not hh_match
                 or not rows.verification_status.eq("verified").all()
                 or not rows.scope.eq("sale_apartment").all()):
             continue
@@ -89,11 +91,20 @@ def adjusted_valuation(totals: pd.DataFrame, detail: pd.DataFrame, policy: dict)
             candidates = donors.loc[donors.kb_complex_id.eq(row.kb_complex_id)]
             if candidates.empty or row.exclusive_area_sqm <= 0:
                 continue
-            distance = (candidates.exclusive_area_sqm - row.exclusive_area_sqm).abs()
-            nearest = candidates.loc[np.isclose(distance, distance.min(), rtol=0, atol=1e-9)]
-            unit = ((nearest.price_krw / nearest.exclusive_area_sqm) * nearest.households).sum() / nearest.households.sum()
+            # 하위 평형대의 평단가 기준 보정 (하위 평형이 없는 최하위 평형은 최저 평형단가 적용)
+            lower_candidates = candidates.loc[candidates.exclusive_area_sqm <= row.exclusive_area_sqm]
+            if not lower_candidates.empty:
+                max_area = lower_candidates.exclusive_area_sqm.max()
+                nearest = lower_candidates.loc[np.isclose(lower_candidates.exclusive_area_sqm, max_area, rtol=0, atol=1e-9)]
+            else:
+                min_area = candidates.exclusive_area_sqm.min()
+                nearest = candidates.loc[np.isclose(candidates.exclusive_area_sqm, min_area, rtol=0, atol=1e-9)]
+            sum_hh = nearest.households.sum()
+            if sum_hh == 0:
+                continue
+            unit = ((nearest.price_krw / nearest.exclusive_area_sqm) * nearest.households).sum() / sum_hh
             detail.at[j, "adjusted_price_krw"] = round(unit * row.exclusive_area_sqm)
-            detail.at[j, "price_method"] = "면적 단가 보정 추정"
+            detail.at[j, "price_method"] = "하위 평형단가 기준 보정"
             detail.at[j, "reference_area_group_ids"] = " | ".join(nearest.area_group_id)
             detail.at[j, "reference_unit_price_krw_sqm"] = unit
         adjusted = detail.loc[rows.index]
